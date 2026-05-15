@@ -248,6 +248,11 @@ const DailyChallengeCard = ({ profile }: { profile: UserProfile }) => {
   const [completed, setCompleted] = useState(false);
 
   const fetchChallenge = async () => {
+    const isSmartMode = localStorage.getItem('family_smart_mode') !== 'false';
+    if (!isSmartMode) {
+      setChallenge({ title: 'تحدي القراءة', description: 'اقرأ صفحة واحدة من كتابك المفضل مع العائلة.', points: 10 });
+      return;
+    }
     setLoading(true);
     try {
       const res = await fetch('/api/ai/daily-challenge', { 
@@ -259,9 +264,7 @@ const DailyChallengeCard = ({ profile }: { profile: UserProfile }) => {
       setChallenge(data);
     } catch (err: any) {
       console.error(err);
-      if (err.message?.includes('الحل') || err.message?.includes('429') || err.message?.includes('quota')) {
-        setChallenge({ title: 'تحدي القراءة', description: 'اقرأ صفحة واحدة من كتابك المفضل مع العائلة.', points: 10 });
-      }
+      setChallenge({ title: 'تحدي القراءة العائلية', description: 'اجتمعوا لقراءة قصة قصيرة معاً لمدة 15 دقيقة.', points: 15 });
     } finally {
       setLoading(false);
     }
@@ -326,6 +329,16 @@ const FamilyVisionBoard = () => {
   const [activeGoal, setActiveGoal] = useState<any>(null);
 
   const fetchVision = async () => {
+    const isSmartMode = localStorage.getItem('family_smart_mode') !== 'false';
+    if (!isSmartMode) {
+      setGoals([
+        { title: 'صيف القراء', icon: '📚' },
+        { title: 'مغامرات الطبيعة', icon: '🌳' },
+        { title: 'صناع المرح', icon: '🎨' }
+      ]);
+      setActiveGoal({ title: 'صيف القراء', icon: '📚' });
+      return;
+    }
     setLoading(true);
     try {
       const res = await fetch('/api/ai/vision-board', { 
@@ -339,15 +352,13 @@ const FamilyVisionBoard = () => {
       if (data.goals?.length > 0) setActiveGoal(data.goals[0]);
     } catch (err: any) {
       console.error(err);
-      if (err.message?.includes('الحل') || err.message?.includes('quota')) {
-        const fallbacks = [
-          { title: 'صيف القراء', icon: '📚' },
-          { title: 'مغامرات الطبيعة', icon: '🌳' },
-          { title: 'صناع المرح', icon: '🎨' }
-        ];
-        setGoals(fallbacks);
-        setActiveGoal(fallbacks[0]);
-      }
+      const fallbacks = [
+        { title: 'صيف القراء', icon: '📚' },
+        { title: 'مغامرات الطبيعة', icon: '🌳' },
+        { title: 'صناع المرح', icon: '🎨' }
+      ];
+      setGoals(fallbacks);
+      setActiveGoal(fallbacks[0]);
     } finally {
       setLoading(false);
     }
@@ -553,8 +564,19 @@ const AIAssistant = ({ profile }: { profile: UserProfile }) => {
     const userMsg = input.trim();
     setInput('');
     setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
-    setLoading(true);
+    
+    const isSmartMode = localStorage.getItem('family_smart_mode') !== 'false';
+    if (!isSmartMode) {
+      setTimeout(() => {
+        setMessages(prev => [...prev, { 
+          role: 'assistant', 
+          content: 'أهلاً بك! أنا أعمل حالياً بوضع التوفير اليدوي. تذكر دائماً أن الصبر والتعاون هما أساس نجاح العائلة السعيدة. كيف يمكنني مساعدتك اليوم؟' 
+        }]);
+      }, 500);
+      return;
+    }
 
+    setLoading(true);
     try {
       const res = await fetch('/api/ai/chat', {
         method: 'POST',
@@ -696,6 +718,18 @@ const AIWizard = ({ onTasksGenerated }: { onTasksGenerated: (tasks: any[]) => vo
 
   const generate = async () => {
     if (!goal.trim() || loading) return;
+
+    const isSmartMode = localStorage.getItem('family_smart_mode') !== 'false';
+    if (!isSmartMode) {
+      onTasksGenerated([
+        { title: 'البدء بالمهمة الكبرى', description: `أول خطوة للوصول إلى: ${goal}`, points: 15 },
+        { title: 'تنظيم المستلزمات', description: 'تجهيز كل ما يلزم للهدف', points: 10 },
+        { title: 'خطوة صغيرة للأمام', description: 'إنجاز جزء بسيط ومهم الآن', points: 10 }
+      ]);
+      setGoal('');
+      return;
+    }
+
     setLoading(true);
     try {
       const res = await fetch('/api/ai/generate-tasks', {
@@ -709,17 +743,13 @@ const AIWizard = ({ onTasksGenerated }: { onTasksGenerated: (tasks: any[]) => vo
       setGoal('');
     } catch (err: any) {
       console.error(err);
-      if (err.message?.includes('الحل') || err.message?.includes('quota')) {
-        // Fallback for tasks
-        onTasksGenerated([
-          { title: 'البدء بالمهمة الكبرى', description: `أول خطوة للوصول إلى: ${goal}`, points: 15 },
-          { title: 'تنظيم المستلزمات', description: 'تجهيز كل ما يلزم للهدف', points: 10 },
-          { title: 'خطوة صغيرة للأمام', description: 'إنجاز جزء بسيط ومهم الآن', points: 10 }
-        ]);
-        setGoal('');
-      } else {
-        alert('حدث خطأ في النظام. يرجى المحاولة لاحقاً.');
-      }
+      // Fallback for tasks
+      onTasksGenerated([
+        { title: 'البدء بالمهمة الكبرى', description: `أول خطوة للوصول إلى: ${goal}`, points: 15 },
+        { title: 'تنظيم المستلزمات', description: 'تجهيز كل ما يلزم للهدف', points: 10 },
+        { title: 'خطوة صغيرة للأمام', description: 'إنجاز جزء بسيط ومهم الآن', points: 10 }
+      ]);
+      setGoal('');
     } finally {
       setLoading(false);
     }
@@ -1639,6 +1669,7 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
 const SettingsPage = ({ profile }: { profile: UserProfile }) => {
   const [rate, setRate] = useState(0.25);
   const [saving, setSaving] = useState(false);
+  const [smartMode, setSmartMode] = useState(() => localStorage.getItem('family_smart_mode') !== 'false');
 
   useEffect(() => {
     getDoc(doc(db, 'config', 'family_settings')).then(snap => {
@@ -1651,8 +1682,9 @@ const SettingsPage = ({ profile }: { profile: UserProfile }) => {
     await updateDoc(doc(db, 'config', 'family_settings'), {
       pointExchangeRate: Number(rate)
     });
+    localStorage.setItem('family_smart_mode', String(smartMode));
     setSaving(false);
-    alert('تم حفظ الإعدادات بنجاح');
+    alert('تم حفظ الإعدادات بنجاح. قد تحتاج لإعادة تحميل الصفحة لتطبيق بعض التغييرات الذكية.');
   };
 
   if (profile.role !== 'parent') return <Navigate to="/" />;
@@ -1661,25 +1693,52 @@ const SettingsPage = ({ profile }: { profile: UserProfile }) => {
     <div className="pb-24 bg-summer-bg min-h-screen">
       <Header title="إعدادات العائلة" profile={profile} />
       <div className="p-6 space-y-8">
-        <section className="bg-summer-card p-6 rounded-3xl border border-white/20 space-y-4 shadow-xl">
-          <h3 className="font-bold text-summer-text">إعدادات النقاط</h3>
-          <p className="text-xs text-summer-text/40">حدد كم يعادل كل نقطة بالريال السعودي</p>
-          <div className="flex gap-4 items-center">
-            <input 
-              type="number"
-              step="0.01"
-              value={rate}
-              onChange={(e) => setRate(Number(e.target.value))}
-              className="flex-1 bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-summer-text outline-none focus:border-summer-accent"
-            />
-            <span className="text-summer-text font-bold">ريال لكل نقطة</span>
+        <section className="bg-summer-card p-6 rounded-3xl border border-white/20 space-y-6 shadow-xl">
+          <h3 className="font-bold text-summer-text flex items-center gap-2">
+            <Settings size={18} className="text-summer-accent" />
+            إعدادات النظام الذكي
+          </h3>
+          
+          <div className="flex items-center justify-between p-4 bg-white/10 rounded-2xl border border-white/10">
+            <div>
+              <p className="text-sm font-bold text-summer-text">وضع الذكاء الاصطناعي (AI)</p>
+              <p className="text-[10px] text-summer-text/40">تفعيل اقتراحات المهام والتحديات الذكية</p>
+            </div>
+            <button 
+              onClick={() => setSmartMode(!smartMode)}
+              className={cn(
+                "w-14 h-8 rounded-full transition-all relative p-1",
+                smartMode ? "bg-summer-accent" : "bg-white/20"
+              )}
+            >
+              <motion.div 
+                animate={{ x: smartMode ? 24 : 0 }}
+                className="w-6 h-6 bg-white rounded-full shadow-md"
+              />
+            </button>
           </div>
+
+          <div className="space-y-4 pt-4 border-t border-white/10">
+            <h3 className="font-bold text-summer-text">إعدادات النقاط</h3>
+            <p className="text-xs text-summer-text/40">حدد كم يعادل كل نقطة بالريال السعودي</p>
+            <div className="flex gap-4 items-center">
+              <input 
+                type="number"
+                step="0.01"
+                value={rate}
+                onChange={(e) => setRate(Number(e.target.value))}
+                className="flex-1 bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-summer-text outline-none focus:border-summer-accent"
+              />
+              <span className="text-summer-text font-bold">ريال/نقطة</span>
+            </div>
+          </div>
+
           <button 
             onClick={saveSettings}
             disabled={saving}
             className="w-full summer-gradient text-white py-4 rounded-2xl font-black hover:shadow-lg transition-all disabled:opacity-50 shadow-lg"
           >
-            {saving ? 'جاري الحفظ...' : 'حفظ التغييرات'}
+            {saving ? 'جاري الحفظ...' : 'حفظ الإعدادات'}
           </button>
         </section>
 
@@ -1695,8 +1754,16 @@ const SettingsPage = ({ profile }: { profile: UserProfile }) => {
 const SmartAdvisor = ({ points, prizes }: { points: number, prizes: Prize[] }) => {
   const [advice, setAdvice] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const isSmartMode = localStorage.getItem('family_smart_mode') !== 'false';
 
   const getAdvice = async () => {
+    if (!isSmartMode) {
+      setAdvice({
+        advice: "نقاطك رائعة! ننصحك دائماً بموازنة مكافآتك بين المتعة والادخار للمستقبل.",
+        suggestion: "ما رأيك بتخصيص وقت للقراءة أو الرياضة اليوم؟"
+      });
+      return;
+    }
     setLoading(true);
     try {
       const res = await fetch('/api/ai/reward-advisor', {
@@ -1712,12 +1779,10 @@ const SmartAdvisor = ({ points, prizes }: { points: number, prizes: Prize[] }) =
       setAdvice(data);
     } catch (err: any) {
       console.error(err);
-      if (err.message?.includes('الحل') || err.message?.includes('quota')) {
-        setAdvice({
-          advice: "نقاطك رائعة! جرب تقسيمها بين مكافأة فورية بسيطة وادخار الباقي لهدف أكبر.",
-          suggestion: "ما رأيك بفيلم عائلي مع الفشار الليلة؟"
-        });
-      }
+      setAdvice({
+        advice: "نقاطك رائعة! جرب تقسيمها بين مكافأة فورية بسيطة وادخار الباقي لهدف أكبر.",
+        suggestion: "ما رأيك بفيلم عائلي مع الفشار الليلة؟"
+      });
     } finally {
       setLoading(false);
     }
@@ -1727,8 +1792,8 @@ const SmartAdvisor = ({ points, prizes }: { points: number, prizes: Prize[] }) =
     <div className="bg-summer-accent/10 border border-summer-accent/20 p-6 rounded-3xl space-y-4 shadow-inner">
       <div className="flex items-center justify-between">
         <h3 className="font-bold text-summer-accent flex items-center gap-2">
-          <Sparkles size={18} />
-          المستشار الذكي للمكافآت
+          {isSmartMode ? <Sparkles size={18} /> : <Wand2 size={18} />}
+          {isSmartMode ? 'المستشار الذكي للمكافآت' : 'دليل المكافآت العائلي'}
         </h3>
         {!advice && (
           <button 
@@ -1736,7 +1801,7 @@ const SmartAdvisor = ({ points, prizes }: { points: number, prizes: Prize[] }) =
             disabled={loading}
             className="text-xs font-black text-white bg-summer-accent px-4 py-2 rounded-xl shadow-lg hover:scale-105 transition-all disabled:opacity-50"
           >
-            {loading ? 'جاري التحليل...' : 'احصل على نصيحة ذكية 💡'}
+            {loading ? 'جاري التحليل...' : isSmartMode ? 'احصل على نصيحة ذكية 💡' : 'نصيحة سريعة 💡'}
           </button>
         )}
       </div>
@@ -1749,10 +1814,10 @@ const SmartAdvisor = ({ points, prizes }: { points: number, prizes: Prize[] }) =
              <p className="text-sm text-summer-text leading-relaxed font-bold">"{advice.advice}"</p>
           </div>
           <div className="bg-summer-primary/10 p-4 rounded-xl border border-summer-primary/20">
-             <p className="text-[10px] text-summer-primary uppercase font-black mb-1 tracking-widest">اقتراح خارج الصندوق:</p>
+             <p className="text-[10px] text-summer-primary uppercase font-black mb-1 tracking-widest">{isSmartMode ? 'اقتراح ذكي:' : 'اقتراح عائلي:'}</p>
              <p className="text-xs text-summer-text font-black">{advice.suggestion}</p>
           </div>
-          <button onClick={() => setAdvice(null)} className="text-[9px] text-summer-accent font-bold uppercase tracking-widest mt-2 hover:underline">إغلاق النصيحة</button>
+          <button onClick={() => setAdvice(null)} className="text-[9px] text-summer-accent font-bold uppercase tracking-widest mt-2 hover:underline">إغلاق</button>
         </motion.div>
       )}
     </div>
