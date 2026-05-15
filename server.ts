@@ -66,7 +66,7 @@ async function startServer() {
       const { prompt, context } = req.body;
       try {
         const response = await ai.models.generateContent({
-          model: "gemini-1.5-flash-latest",
+          model: "gemini-3.1-flash-lite",
           contents: `${context ? `Context: ${context}\n\n` : ''}${prompt}`,
           config: {
             systemInstruction: "أنت مساعد عائلي ذكي وخبير في التربية وإدارة شؤون المنزل. تساعد العائلات السعودية في تنظيم وقتهم، تحفيز أطفالهم، وتوفير نصائح عملية. تحدث دائماً باللغة العربية بأسلوب ودود ومهني.",
@@ -90,7 +90,7 @@ async function startServer() {
       const { goal } = req.body;
       try {
         const response = await ai.models.generateContent({
-          model: "gemini-1.5-flash-latest",
+          model: "gemini-3.1-flash-lite",
           contents: `حول هذا الهدف إلى 3-5 مهام عائلية محددة وقابلة للقياس: "${goal}"`,
           config: {
             systemInstruction: "أنت مساعد لإدارة المهام. حول الأهداف العامة إلى مهام صغيرة وواضحة. ارجع الإجابة بتنسيق JSON: { \"tasks\": [ { \"title\": \"...\", \"description\": \"...\", \"points\": 10 } ] }",
@@ -119,7 +119,7 @@ async function startServer() {
     try {
       try {
         const response = await ai.models.generateContent({
-          model: "gemini-1.5-flash-latest",
+          model: "gemini-3.1-flash-lite",
           contents: "ولد تحدي عائلي صغير (Micro-challenge) لليوم. يجب أن يكون بسيطاً، ممتعاً، ويشجع على القيم العائلية. ارجع الإجابة بتنسيق JSON: { \"title\": \"...\", \"description\": \"...\", \"points\": 5 }",
           config: {
             systemInstruction: "أنت محفز عائلي. التحدي يجب أن يكون قابلاً للتنفيذ في أقل من 10 دقائق.",
@@ -142,7 +142,7 @@ async function startServer() {
       const { familySnapshot } = req.body;
       try {
         const response = await ai.models.generateContent({
-          model: "gemini-1.5-flash-latest",
+          model: "gemini-3.1-flash-lite",
           contents: `بناءً على نشاط العائلة الأخير: "${familySnapshot}"، اقترح 3 أهداف رؤية ملهمة للصيف. ارجع الإجابة بتنسيق JSON: { \"goals\": [ { \"title\": \"...\", \"icon\": \"Emoji\" } ] }`,
           config: {
             systemInstruction: "أنت مستشار رؤية عائلي. الأهداف يجب أن تركز على الترابط والنمو والمرح الصيفي.",
@@ -165,7 +165,7 @@ async function startServer() {
       const { points, currentPrizes } = req.body;
       try {
         const response = await ai.models.generateContent({
-          model: "gemini-1.5-flash-latest",
+          model: "gemini-3.1-flash-lite",
           contents: `الطفل لديه ${points} نقطة. المكافآت المتاحة: ${currentPrizes}. اقترح مكافأة ذكية "خارج الصندوق" أو نصيحة للادخار. ارجع الإجابة بتنسيق JSON: { \"advice\": \"...\", \"suggestion\": \"...\" }`,
           config: {
             systemInstruction: "أنت خبير في التحفيز الإيجابي. قدم نصيحة مشجعة وذكية.",
