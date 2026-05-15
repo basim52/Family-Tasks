@@ -7,6 +7,7 @@ export interface UserProfile {
   photoURL: string;
   role: UserRole;
   points: number;
+  totalPointsEarned?: number;
   currencyBalance: number;
   createdAt: any;
 }
@@ -16,13 +17,24 @@ export interface Task {
   title: string;
   description: string;
   points: number;
-  status: 'pending' | 'completed' | 'approved';
+  status: 'pending' | 'completed' | 'approved' | 'rejected';
   assignedTo: string;
   assignedToName: string;
   createdBy: string;
   imageUrl?: string;
   createdAt: any;
   completedAt?: any;
+  approvedAt?: any;
+}
+
+export interface TaskComment {
+  id: string;
+  taskId: string;
+  userId: string;
+  userName: string;
+  userPhoto: string;
+  content: string;
+  createdAt: any;
 }
 
 export interface Transaction {
@@ -42,8 +54,25 @@ export interface Message {
   senderId: string;
   senderName: string;
   content: string;
-  type: 'text' | 'image';
+  type: 'text' | 'image' | 'audio' | 'video_call';
   createdAt: any;
+}
+
+export interface Notification {
+  id: string;
+  userId: string;
+  title: string;
+  body: string;
+  type: string;
+  read: boolean;
+  createdAt: any;
+}
+
+export interface Prize {
+  id: string;
+  title: string;
+  cost: number;
+  imageUrl?: string;
 }
 
 export interface AppConfig {

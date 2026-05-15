@@ -44,51 +44,51 @@ export const TaskImageGenerator: React.FC<Props> = ({ task, pointsValue }) => {
     <div className="flex gap-2">
       {/* Hidden high-quality card for capture */}
       <div className="fixed -left-[2000px] top-0 pointer-events-none">
-        <div 
+          <div 
           ref={elementRef}
-          className="w-[1200px] h-[630px] flex flex-col p-12 relative overflow-hidden"
+          className="w-[1200px] h-[630px] flex flex-col p-12 relative overflow-hidden text-summer-text"
           style={{ 
-            background: 'linear-gradient(135deg, #1a365d 0%, #0c1a2c 100%)',
+            background: 'linear-gradient(135deg, #caf0f8 0%, #90e0ef 100%)',
             fontFamily: '"Noto Sans Arabic", sans-serif'
           }}
           dir="rtl"
         >
-          {/* Gold Decorative Elements */}
-          <div className="absolute top-0 right-0 w-64 h-64 border-t-8 border-r-8 border-gold/30 rounded-tr-3xl" />
-          <div className="absolute bottom-0 left-0 w-64 h-64 border-b-8 border-l-8 border-gold/30 rounded-bl-3xl" />
+          {/* Summer Decorative Elements */}
+          <div className="absolute top-0 right-0 w-64 h-64 border-t-8 border-r-8 border-summer-accent/30 rounded-tr-3xl" />
+          <div className="absolute bottom-0 left-0 w-64 h-64 border-b-8 border-l-8 border-summer-accent/30 rounded-bl-3xl" />
           
           <div className="flex-1 flex flex-col justify-between z-10">
             <div className="flex justify-between items-start">
-              <div className="bg-gold p-6 rounded-3xl shadow-xl border-4 border-gold-light/50">
-                <span className="text-navy text-5xl font-bold">{pointsValue}</span>
+              <div className="bg-summer-accent p-6 rounded-3xl shadow-xl border-4 border-white/50">
+                <span className="text-white text-5xl font-bold">{pointsValue}</span>
               </div>
               <div className="text-right">
-                <h2 className="text-gold-light text-3xl font-medium mb-2 tracking-widest uppercase">مهام عائلية</h2>
-                <div className="h-1 w-32 bg-gold ml-auto" />
+                <h2 className="text-summer-primary text-3xl font-black mb-2 tracking-widest uppercase">مهام عائلية صيفية</h2>
+                <div className="h-1 w-32 bg-summer-accent ml-auto" />
               </div>
             </div>
 
             <div className="text-center px-12">
-              <h1 className="text-white text-7xl font-bold mb-8 leading-tight drop-shadow-lg">
+              <h1 className="text-summer-text text-7xl font-black mb-8 leading-tight drop-shadow-sm">
                 {task.title}
               </h1>
-              <p className="text-slate-300 text-3xl leading-relaxed max-w-3xl mx-auto">
+              <p className="text-summer-text/60 text-3xl leading-relaxed max-w-3xl mx-auto font-medium">
                 {task.description}
               </p>
             </div>
 
-            <div className="flex justify-between items-center bg-white/5 p-8 rounded-2xl border border-white/10">
+            <div className="flex justify-between items-center bg-white/40 p-8 rounded-2xl border border-white/60 backdrop-blur-sm">
               <div className="flex items-center gap-6">
-                <div className="w-20 h-20 bg-gold rounded-full flex items-center justify-center text-navy text-4xl font-bold">
+                <div className="w-20 h-20 bg-summer-primary rounded-full flex items-center justify-center text-white text-4xl font-bold border-4 border-white/50">
                   {task.assignedToName?.charAt(0) || '؟'}
                 </div>
                 <div>
-                  <p className="text-gold-light text-xl mb-1">مسندة إلى</p>
-                  <p className="text-white text-3xl font-bold">{task.assignedToName || 'الجميع'}</p>
+                  <p className="text-summer-accent text-xl mb-1 font-bold">مسندة إلى</p>
+                  <p className="text-summer-text text-3xl font-black">{task.assignedToName || 'الجميع'}</p>
                 </div>
               </div>
               <div className="text-right">
-                <p className="text-slate-400 text-lg">تحويـل المهـام إلى جـوائز</p>
+                <p className="text-summer-text/40 text-lg font-bold">بوابة العائلة الذكية ☀️</p>
               </div>
             </div>
           </div>
@@ -97,7 +97,7 @@ export const TaskImageGenerator: React.FC<Props> = ({ task, pointsValue }) => {
 
       <button
         onClick={() => generateImage(true)}
-        className="p-2 bg-navy text-white rounded-lg hover:bg-navy/80 transition-colors flex items-center gap-2 text-sm"
+        className="p-2 bg-summer-primary/10 text-summer-primary rounded-xl hover:bg-summer-primary hover:text-white transition-all flex items-center gap-2 text-sm font-bold border border-summer-primary/20"
         title="مشاركة عبر واتساب"
       >
         <Share2 size={16} />
@@ -105,11 +105,11 @@ export const TaskImageGenerator: React.FC<Props> = ({ task, pointsValue }) => {
       </button>
       <button
         onClick={() => generateImage(false)}
-        className="p-2 bg-gold text-navy rounded-lg hover:bg-gold/80 transition-colors flex items-center gap-2 text-sm"
+        className="p-2 bg-summer-accent/10 text-summer-accent rounded-xl hover:bg-summer-accent hover:text-white transition-all flex items-center gap-2 text-sm font-bold border border-summer-accent/20"
         title="تحميل كصورة"
       >
         <Download size={16} />
-        <span>حفظ</span>
+        <span>حمّل الصورة</span>
       </button>
     </div>
   );

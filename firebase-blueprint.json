@@ -56,17 +56,43 @@
         "senderId": { "type": "string" },
         "senderName": { "type": "string" },
         "content": { "type": "string" },
-        "type": { "type": "string", "enum": ["text", "image"] },
+        "type": { "type": "string", "enum": ["text", "image", "audio", "video_call"] },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["senderId", "content", "type", "createdAt"]
     },
-    "Config": {
-      "title": "Config",
-      "description": "Family settings like exchange rate",
+    "Notification": {
+      "title": "Notification",
+      "description": "In-app alerts",
       "type": "object",
       "properties": {
-        "pointExchangeRate": { "type": "number", "description": "1 point = X SAR" }
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "type": { "type": "string" },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "title", "read", "createdAt"]
+    },
+    "Prize": {
+      "title": "Prize",
+      "description": "Family rewards",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "cost": { "type": "number" },
+        "imageUrl": { "type": "string" }
+      },
+      "required": ["title", "cost"]
+    },
+    "Config": {
+      "title": "Config",
+      "description": "Family settings",
+      "type": "object",
+      "properties": {
+        "pointExchangeRate": { "type": "number" },
+        "familyLevels": { "type": "object" }
       }
     }
   },
@@ -86,6 +112,14 @@
     "messages": {
       "schema": "Message",
       "description": "Family chat history"
+    },
+    "notifications": {
+      "schema": "Notification",
+      "description": "User alerts"
+    },
+    "prizes": {
+      "schema": "Prize",
+      "description": "Rewards shop"
     },
     "config": {
       "schema": "Config",

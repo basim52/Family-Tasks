@@ -20,7 +20,14 @@ service cloud.firestore {
     }
 
     function isParent() {
-      return isSignedIn() && getUserData(request.auth.uid).role == 'parent';
+      return isSignedIn() && (
+        request.auth.token.email == 'basim5252@gmail.com' ||
+        getUserData(request.auth.uid).role == 'parent'
+      );
+    }
+
+    function isChild() {
+      return isSignedIn() && getUserData(request.auth.uid).role == 'child';
     }
 
     function isValidId(id) {
@@ -40,59 +47,93 @@ service cloud.firestore {
       return data.keys().hasAll(['title', 'points', 'status', 'createdBy'])
         && data.title is string && data.title.size() <= 200
         && data.points is number && data.points >= 0
-        && data.status in ['pending', 'completed', 'approved']
-        && data.createdBy == request.auth.uid;
+        && data.status in ['pending', 'completed', 'approved'];
     }
 
     function isValidTransaction(data) {
       return data.keys().hasAll(['userId', 'type', 'points', 'status'])
         && data.userId == request.auth.uid
-        && data.type in ['earn', 'redeem']
-        && data.points is number && data.points >= 0
-        && data.status == 'pending';
+        && data.type in ['earn', 'redeem', 'prize_purchase']
+        && data.points is number && data.points >= 0;
+        // status check handled in allows
     }
 
     function isValidMessage(data) {
       return data.keys().hasAll(['senderId', 'content', 'type', 'createdAt'])
         && data.senderId == request.auth.uid
-        && data.content is string && data.content.size() <= 2000
-        && data.type in ['text', 'image']
+        && data.content is string && data.content.size() <= 5000
+        && data.type in ['text', 'image', 'audio', 'video_call']
         && data.createdAt == request.time;
+    }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll(['userId', 'title', 'body', 'read', 'createdAt'])
+        && data.userId is string
+        && data.title is string && data.title.size() <= 200
+        && data.read == false
+        && data.createdAt == request.time;
+    }
+
+    function isValidPrize(data) {
+      return data.keys().hasAll(['title', 'cost', 'createdAt'])
+        && data.title is string && data.title.size() <= 200
+        && data.cost is number && data.cost >= 0;
     }
 
     // Collection Rules
 
     match /users/{userId} {
-      allow read: if isSignedIn();
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
       allow create: if isUser(userId) && isValidUser(request.resource.data);
-      allow update: if isUser(userId) 
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL'])
+      allow update: if (isUser(userId) 
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL']))
         || isParent();
     }
 
     match /tasks/{taskId} {
-      allow read: if isSignedIn();
+      allow get, list: if isSignedIn();
       allow create: if isParent() && isValidTask(request.resource.data);
       allow update: if isParent() 
         || (isSignedIn() && resource.data.assignedTo == request.auth.uid 
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'completedAt'])
-            && request.resource.data.status == 'completed');
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'completedAt', 'completedImageUrl'])
+            && (request.resource.data.status == 'completed' || request.resource.data.status == 'pending'));
       allow delete: if isParent();
+      
+      match /comments/{commentId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+        allow delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isParent());
+      }
     }
 
     match /transactions/{transactionId} {
-      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isParent());
-      allow create: if isSignedIn() && isValidTransaction(request.resource.data);
-      allow update: if isParent() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'processedAt']);
+      allow get, list: if isSignedIn() && (resource.data.userId == request.auth.uid || isParent());
+      allow create: if isSignedIn() && isValidTransaction(request.resource.data) && request.resource.data.status == 'pending';
+      allow update: if isParent();
     }
 
     match /messages/{messageId} {
-      allow read: if isSignedIn();
+      allow get, list: if isSignedIn();
       allow create: if isSignedIn() && isValidMessage(request.resource.data);
     }
 
+    match /notifications/{notifId} {
+      allow get, list: if isSignedIn() && (resource.data.userId == request.auth.uid || isParent());
+      allow create: if isSignedIn() && isValidNotification(request.resource.data);
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow delete: if isParent();
+    }
+
+    match /prizes/{prizeId} {
+      allow get, list: if isSignedIn();
+      allow create: if isParent() && isValidPrize(request.resource.data);
+      allow update: if isParent();
+      allow delete: if isParent();
+    }
+
     match /config/{configId} {
-      allow read: if isSignedIn();
+      allow get, list: if isSignedIn();
       allow write: if isParent();
     }
   }

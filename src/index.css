@@ -1,18 +1,20 @@
 @import "tailwindcss";
 
 @theme {
-  --color-navy-dark: #00122e;
-  --color-navy: #001a40;
-  --color-navy-light: #002a66;
-  --color-gold: #d4af37;
-  --color-gold-light: #f9e29b;
+  --color-summer-primary: #00b4d8; /* Sky Blue Primary */
+  --color-summer-secondary: #ffb703; /* Sand/Gold */
+  --color-summer-accent: #fb8500; /* Coral/Orange */
+  --color-summer-bg: #caf0f8; /* Very Light sky blue */
+  --color-summer-card: #90e0ef; /* Light sky blue card */
+  --color-summer-text: #023e8a; /* Dark Blue Text */
+  --color-summer-warm: #ffb703;
   
   --font-sans: "Inter", "Noto Sans Arabic", ui-sans-serif, system-ui, sans-serif;
 }
 
 @layer base {
   body {
-    @apply bg-navy-dark text-white;
+    @apply bg-summer-bg text-summer-text font-sans;
   }
 }
 
@@ -21,19 +23,15 @@
 }
 
 .glass-card {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.4);
   backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.3);
 }
 
-.gold-gradient {
-  background: linear-gradient(135deg, #d4af37 0%, #f9e29b 100%);
+.summer-gradient {
+  background: linear-gradient(135deg, #00b4d8 0%, #fb8500 100%);
 }
 
-.navy-gradient {
-  background: linear-gradient(135deg, #002a66 0%, #001a40 100%);
-}
-
-.gold-shadow {
-  shadow: 0 4px 20px rgba(212, 175, 55, 0.2);
+.summer-glow {
+  box-shadow: 0 10px 40px -10px rgba(0, 180, 216, 0.3);
 }
