@@ -24,6 +24,8 @@
         "title": { "type": "string" },
         "description": { "type": "string" },
         "points": { "type": "number" },
+        "startTime": { "type": "string", "description": "e.g., 09:00" },
+        "endTime": { "type": "string", "description": "e.g., 10:00" },
         "status": { "type": "string", "enum": ["pending", "completed", "approved"] },
         "assignedTo": { "type": "string" },
         "createdBy": { "type": "string" },

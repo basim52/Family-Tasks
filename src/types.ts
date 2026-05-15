@@ -21,6 +21,8 @@ export interface Task {
   assignedTo: string;
   assignedToName: string;
   createdBy: string;
+  startTime?: string;
+  endTime?: string;
   imageUrl?: string;
   createdAt: any;
   completedAt?: any;

@@ -980,6 +980,19 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
                   </div>
                   <h4 className="text-lg font-bold mb-1 text-white">{task.title}</h4>
                   <p className="text-xs text-white/80 leading-relaxed">{task.description}</p>
+                  {(task.startTime || task.endTime) && (
+                    <div className="mt-3 flex items-center gap-3 text-[10px] font-black text-white/70 bg-white/10 px-3 py-1.5 rounded-xl w-max">
+                      <span className="flex items-center gap-1.5">
+                        <Play size={10} />
+                        {task.startTime || '--:--'}
+                      </span>
+                      <span className="opacity-30">|</span>
+                      <span className="flex items-center gap-1.5">
+                        <Pause size={10} />
+                        {task.endTime || '--:--'}
+                      </span>
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center justify-between border-t border-white/20 pt-4">
                   <div className="flex items-center gap-2">
@@ -1162,12 +1175,16 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
   const [newTitle, setNewTitle] = useState('');
   const [newPoints, setNewPoints] = useState(10);
   const [newAssigned, setNewAssigned] = useState('');
+  const [newStartTime, setNewStartTime] = useState('');
+  const [newEndTime, setNewEndTime] = useState('');
   const [family, setFamily] = useState<UserProfile[]>([]);
   const isParent = profile.role === 'parent';
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editPoints, setEditPoints] = useState(10);
   const [editAssigned, setEditAssigned] = useState('');
+  const [editStartTime, setEditStartTime] = useState('');
+  const [editEndTime, setEditEndTime] = useState('');
   const [showComments, setShowComments] = useState<string | null>(null);
 
   useEffect(() => {
@@ -1204,16 +1221,20 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
         status: 'pending',
         assignedTo: newAssigned,
         assignedToName: assignedUser?.displayName || 'الجميع',
+        startTime: newStartTime || null,
+        endTime: newEndTime || null,
         createdBy: profile.uid,
         createdAt: serverTimestamp(),
       });
 
       // Notify Child
       if (newAssigned) {
-        await sendNotification(newAssigned, 'مهمة جديدة! 🚀', `لقد تم تكليفك بمهمة: ${newTitle}`, 'task');
+        await sendNotification(newAssigned, 'مهمة جديدة! 🚀', `لقد تم تكليفك بمهمة: ${newTitle}${newStartTime ? ` (تبدأ ${newStartTime})` : ''}`, 'task');
       }
 
       setNewTitle('');
+      setNewStartTime('');
+      setNewEndTime('');
       setShowAdd(false);
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'tasks');
@@ -1230,6 +1251,8 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
       points: Number(editPoints),
       assignedTo: editAssigned,
       assignedToName: assignedUser?.displayName || 'الجميع',
+      startTime: editStartTime || null,
+      endTime: editEndTime || null,
     });
 
     // Notify Child if reassigned
@@ -1245,6 +1268,8 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
     setEditTitle(task.title);
     setEditPoints(task.points);
     setEditAssigned(task.assignedTo);
+    setEditStartTime(task.startTime || '');
+    setEditEndTime(task.endTime || '');
   };
 
   const approveTask = async (task: Task) => {
@@ -1352,6 +1377,27 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
                   </select>
                 </div>
                 
+                <div className="flex gap-4">
+                  <div className="flex-1">
+                    <label className="text-[10px] font-black text-summer-text/40 uppercase tracking-widest mb-1 block px-1">وقت البدء</label>
+                    <input 
+                      type="time"
+                      className="w-full bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-summer-text outline-none focus:border-summer-accent transition-colors"
+                      value={newStartTime}
+                      onChange={(e) => setNewStartTime(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-[10px] font-black text-summer-text/40 uppercase tracking-widest mb-1 block px-1">وقت الانتهاء</label>
+                    <input 
+                      type="time"
+                      className="w-full bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-summer-text outline-none focus:border-summer-accent transition-colors"
+                      value={newEndTime}
+                      onChange={(e) => setNewEndTime(e.target.value)}
+                    />
+                  </div>
+                </div>
+                
                 <div className="pt-2">
                   <SuggestionsLibrary onSelectTask={(task) => {
                     setNewTitle(task.title);
@@ -1410,6 +1456,27 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
                     ))}
                   </select>
                 </div>
+
+                <div className="flex gap-4">
+                  <div className="flex-1">
+                    <label className="text-[10px] font-black text-summer-text/40 uppercase tracking-widest mb-1 block px-1">وقت البدء</label>
+                    <input 
+                      type="time"
+                      className="w-full bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-summer-text outline-none focus:border-summer-accent transition-colors"
+                      value={editStartTime}
+                      onChange={(e) => setEditStartTime(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-[10px] font-black text-summer-text/40 uppercase tracking-widest mb-1 block px-1">وقت الانتهاء</label>
+                    <input 
+                      type="time"
+                      className="w-full bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-summer-text outline-none focus:border-summer-accent transition-colors"
+                      value={editEndTime}
+                      onChange={(e) => setEditEndTime(e.target.value)}
+                    />
+                  </div>
+                </div>
                 <button 
                   onClick={updateTask}
                   className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black text-lg hover:bg-emerald-700 transition-all shadow-lg active:scale-95"
@@ -1437,6 +1504,19 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
                   </div>
                   <h4 className="text-xl font-bold text-summer-text mb-1 group-hover:text-summer-accent transition-colors">{task.title}</h4>
                   <p className="text-xs text-summer-text/50 line-clamp-2">عن طريق: {family.find(f => f.uid === task.createdBy)?.displayName || 'الأهل'}</p>
+                  {(task.startTime || task.endTime) && (
+                    <div className="mt-2 flex items-center gap-2 text-[10px] font-bold text-summer-accent">
+                      <span className="flex items-center gap-1">
+                        <Play size={10} />
+                        {task.startTime || '--:--'}
+                      </span>
+                      <span>→</span>
+                      <span className="flex items-center gap-1">
+                        <Pause size={10} />
+                        {task.endTime || '--:--'}
+                      </span>
+                    </div>
+                  )}
                 </div>
                 <div className="bg-summer-accent text-white px-4 py-2 rounded-xl font-black shadow-lg">
                   {task.points} ن

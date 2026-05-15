@@ -50,7 +50,9 @@ service cloud.firestore {
       return data.keys().hasAll(['title', 'points', 'status', 'createdBy'])
         && data.title is string && data.title.size() <= 200
         && data.points is number && data.points >= 0
-        && data.status in ['pending', 'completed', 'approved'];
+        && data.status in ['pending', 'completed', 'approved']
+        && (!data.keys().contains('startTime') || (data.startTime is string && data.startTime.size() <= 20))
+        && (!data.keys().contains('endTime') || (data.endTime is string && data.endTime.size() <= 20));
     }
 
     function isValidTransaction(data) {
