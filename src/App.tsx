@@ -20,9 +20,6 @@ import {
   Star,
   PlusCircle as PlusCircleIcon,
   CheckCircle2,
-  Sparkles,
-  BrainCircuit,
-  Wand2,
   Settings,
   ShoppingBag,
   Heart,
@@ -61,6 +58,43 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  return errInfo;
+}
+
 // --- Components ---
 
 const Navbar = ({ profile }: { profile: UserProfile | null }) => {
@@ -69,7 +103,6 @@ const Navbar = ({ profile }: { profile: UserProfile | null }) => {
     { path: '/', icon: Home, label: 'الرئيسية' },
     { path: '/tasks', icon: CheckSquare, label: 'المهام' },
     { path: '/chat', icon: MessageCircle, label: 'الدردشة' },
-    { path: '/assistant', icon: BrainCircuit, label: 'المساعد' },
     { path: '/wallet', icon: WalletIcon, label: 'المحفظة' },
   ];
   const isParent = profile?.role === 'parent';
@@ -174,6 +207,8 @@ const NotificationCentre = ({ profile }: { profile: UserProfile }) => {
     );
     return onSnapshot(q, (snapshot) => {
       setNotifications(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'notifications');
     });
   }, [profile.uid]);
 
@@ -242,189 +277,6 @@ const Header = ({ title, profile, actions }: { title: string, profile: UserProfi
 
 // --- Smart Achievement & Progress Components ---
 
-const DailyChallengeCard = ({ profile }: { profile: UserProfile }) => {
-  const [challenge, setChallenge] = useState<{ title: string, description: string, points: number } | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [completed, setCompleted] = useState(false);
-
-  const fetchChallenge = async () => {
-    const isSmartMode = localStorage.getItem('family_smart_mode') !== 'false';
-    if (!isSmartMode) {
-      setChallenge({ title: 'تحدي القراءة', description: 'اقرأ صفحة واحدة من كتابك المفضل مع العائلة.', points: 10 });
-      return;
-    }
-    setLoading(true);
-    try {
-      const res = await fetch('/api/ai/daily-challenge', { 
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      setChallenge(data);
-    } catch (err: any) {
-      console.error(err);
-      setChallenge({ title: 'تحدي القراءة العائلية', description: 'اجتمعوا لقراءة قصة قصيرة معاً لمدة 15 دقيقة.', points: 15 });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchChallenge();
-  }, []);
-
-  if (!challenge && !loading) return null;
-
-  return (
-    <motion.div 
-      initial={{ x: 20, opacity: 0 }}
-      animate={{ x: 0, opacity: 1 }}
-      className="relative overflow-hidden group"
-    >
-      <div className="absolute inset-0 bg-gradient-to-r from-summer-primary/20 to-summer-accent/20 opacity-50 blur-xl group-hover:opacity-100 transition-opacity" />
-      <div className="relative bg-summer-card/80 backdrop-blur-md border border-white/20 p-6 rounded-[2.5rem] shadow-2xl flex items-center justify-between gap-6">
-        <div className="flex-1">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="bg-emerald-500/10 text-emerald-600 text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-full border border-emerald-500/20">تحدي اليوم الذكي</span>
-            <Sparkles className="text-summer-accent animate-pulse" size={14} />
-          </div>
-          <h3 className="text-xl font-black text-summer-text mb-1">{loading ? 'جاري التفكير...' : challenge?.title}</h3>
-          <p className="text-sm text-summer-text/60 font-medium">{challenge?.description}</p>
-        </div>
-        
-        <button 
-          onClick={() => {
-            if (!completed) {
-              setCompleted(true);
-              // In production we would add points to firebase
-            }
-          }}
-          disabled={completed || loading}
-          className={cn(
-            "w-20 h-20 rounded-full flex flex-col items-center justify-center transition-all shadow-lg active:scale-90 shrink-0",
-            completed ? "bg-emerald-500 text-white" : "summer-gradient text-white hover:scale-105"
-          )}
-        >
-          {completed ? (
-            <>
-              <CheckCircle2 size={24} />
-              <span className="text-[10px] font-black mt-1">تم!</span>
-            </>
-          ) : (
-            <>
-              <span className="text-lg font-black">{challenge?.points}</span>
-              <span className="text-[10px] font-black -mt-1">نقطة</span>
-            </>
-          )}
-        </button>
-      </div>
-    </motion.div>
-  );
-};
-
-const FamilyVisionBoard = () => {
-  const [goals, setGoals] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [activeGoal, setActiveGoal] = useState<any>(null);
-
-  const fetchVision = async () => {
-    const isSmartMode = localStorage.getItem('family_smart_mode') !== 'false';
-    if (!isSmartMode) {
-      setGoals([
-        { title: 'صيف القراء', icon: '📚' },
-        { title: 'مغامرات الطبيعة', icon: '🌳' },
-        { title: 'صناع المرح', icon: '🎨' }
-      ]);
-      setActiveGoal({ title: 'صيف القراء', icon: '📚' });
-      return;
-    }
-    setLoading(true);
-    try {
-      const res = await fetch('/api/ai/vision-board', { 
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ familySnapshot: 'العائلة متحمسة للصيف وتبحث عن أنشطة بحرية' })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      setGoals(data.goals);
-      if (data.goals?.length > 0) setActiveGoal(data.goals[0]);
-    } catch (err: any) {
-      console.error(err);
-      const fallbacks = [
-        { title: 'صيف القراء', icon: '📚' },
-        { title: 'مغامرات الطبيعة', icon: '🌳' },
-        { title: 'صناع المرح', icon: '🎨' }
-      ];
-      setGoals(fallbacks);
-      setActiveGoal(fallbacks[0]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchVision();
-  }, []);
-
-  if (loading) return (
-    <div className="bg-summer-card p-8 rounded-3xl animate-pulse flex flex-col items-center justify-center border border-white/20 h-48">
-       <BrainCircuit className="text-summer-accent mb-2 animate-bounce" size={32} />
-       <p className="text-[10px] text-summer-text font-black uppercase tracking-widest">جاري رسم رؤية العائلة...</p>
-    </div>
-  );
-
-  return (
-    <div className="bg-summer-card/40 backdrop-blur-md p-6 rounded-[2.5rem] border border-white/30 relative overflow-hidden group shadow-2xl">
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h4 className="text-[10px] font-black text-summer-accent/60 uppercase tracking-[0.2em] mb-1">رؤية العائلة الذكية 🎯</h4>
-          <h3 className="text-xl font-black text-summer-text">حلم الصيف القادم</h3>
-        </div>
-        <button onClick={fetchVision} className="p-2 hover:bg-summer-accent/10 rounded-full transition-colors text-summer-accent">
-           <Wand2 size={16} />
-        </button>
-      </div>
-      
-      <div className="space-y-4">
-        {goals?.map((g, idx) => (
-          <motion.div 
-            key={idx}
-            initial={{ opacity: 0, x: -10 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: idx * 0.1 }}
-            className={cn(
-              "p-4 rounded-2xl border flex items-center gap-4 transition-all cursor-pointer",
-              activeGoal?.title === g.title ? "bg-white/40 border-summer-accent shadow-lg" : "bg-white/20 border-transparent hover:bg-white/30"
-            )}
-            onClick={() => setActiveGoal(g)}
-          >
-            <div className="text-2xl">{g.icon || '🌴'}</div>
-            <div className="flex-1">
-               <p className="text-xs font-black text-summer-text">{g.title}</p>
-               {activeGoal?.title === g.title && (
-                 <div className="mt-2 h-1.5 w-full bg-summer-accent/10 rounded-full overflow-hidden">
-                    <motion.div initial={{ width: 0 }} animate={{ width: '45%' }} className="h-full summer-gradient" />
-                 </div>
-               )}
-            </div>
-          </motion.div>
-        ))}
-      </div>
-      
-      {!goals?.length && (
-        <button 
-          onClick={fetchVision}
-          className="w-full py-4 bg-summer-accent text-white rounded-2xl font-black text-xs shadow-lg"
-        >
-          اكتشف رؤية العائلة الآن ✨
-        </button>
-      )}
-    </div>
-  );
-};
-
 const Dashboard = ({ profile }: { profile: UserProfile }) => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const isParent = profile.role === 'parent';
@@ -437,6 +289,8 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
     
     return onSnapshot(q, (snapshot) => {
       setTasks(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Task)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'tasks');
     });
   }, [profile.uid, isParent]);
 
@@ -445,14 +299,8 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
       <Header title={`مرحباً، ${profile.displayName}`} profile={profile} />
       
       <div className="px-6 space-y-8 mt-6">
-        {/* Smart Daily Challenge */}
-        <DailyChallengeCard profile={profile} />
-
         {/* Family Mood Dashboard */}
         <FamilyPulse profile={profile} />
-
-        {/* Family Vision Board */}
-        <FamilyVisionBoard />
 
         {/* User Stats & Level */}
         {!isParent && (
@@ -548,126 +396,15 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
 // --- AI Out-of-the-box Components ---
 
 const AIAssistant = ({ profile }: { profile: UserProfile }) => {
-  const [messages, setMessages] = useState<{ role: 'user' | 'assistant', content: string }[]>([]);
-  const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages]);
-
-  const askAI = async () => {
-    if (!input.trim() || loading) return;
-    const userMsg = input.trim();
-    setInput('');
-    setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
-    
-    const isSmartMode = localStorage.getItem('family_smart_mode') !== 'false';
-    if (!isSmartMode) {
-      setLoading(true);
-      setTimeout(() => {
-        setMessages(prev => [...prev, { 
-          role: 'assistant', 
-          content: 'أهلاً بك! أنا أعمل حالياً بوضع التوفير اليدوي. تذكر دائماً أن الصبر والتعاون هما أساس نجاح العائلة السعيدة. كيف يمكنني مساعدتك اليوم؟' 
-        }]);
-        setLoading(false);
-      }, 800);
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const res = await fetch('/api/ai/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          prompt: userMsg,
-          context: `User Role: ${profile.role}, Points: ${profile.points}, Level: ${getLevel(profile.totalPointsEarned).name}` 
-        }),
-      });
-      
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || `خطأ من الخادم: ${res.status}`);
-      }
-      
-      setMessages(prev => [...prev, { role: 'assistant', content: data.text || 'لم أستطع معالجة طلبك حالياً.' }]);
-    } catch (err: any) {
-      console.error("Assistant error:", err);
-      let fallbackMsg = 'عذراً، واجهت مشكلة في الاتصال بذكائي الاصطناعي. إليك نصيحة سريعة: الصبر والتحفيز هما مفتاح النجاح مع الأطفال اليوم!';
-      if (err.message?.includes('الحد الأقصى') || err.message?.includes('429')) {
-        fallbackMsg = 'أهلاً بك! نظراً للضغط العالي على النظام حالياً، أنا أعمل بوضع التوفير الذكي. نصيحتي لك اليوم: اجعل هدفك دائماً هو بناء ذكريات صيفية لا تُنسى عبر المشاركة العائلية.';
-      }
-      setMessages(prev => [...prev, { role: 'assistant', content: fallbackMsg }]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
     <div className="h-screen flex flex-col pb-24 bg-summer-bg">
-      <Header 
-        title="المستشار الذكي" 
-        profile={profile} 
-        actions={<Sparkles className="text-summer-accent animate-pulse" size={20} />}
-      />
-      
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-6 space-y-6">
-        {messages.length === 0 && (
-          <div className="text-center py-12 space-y-4">
-            <div className="w-20 h-20 bg-summer-secondary/10 rounded-full flex items-center justify-center mx-auto mb-6">
-               <BrainCircuit size={40} className="text-summer-accent" />
-            </div>
-            <h3 className="text-xl font-bold text-summer-text">أنا مستشارك العائلي الذكي</h3>
-            <p className="text-sm text-summer-text/50 max-w-xs mx-auto">اسألني عن نصائح للتربية، أفكار للمهام، أو كيف تنظم وقت العائلة!</p>
-          </div>
-        )}
-        
-        {messages.map((msg, i) => (
-          <motion.div 
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            key={i} 
-            className={cn("flex", msg.role === 'user' ? "justify-start" : "justify-end")}
-          >
-            <div className={cn(
-              "max-w-[85%] p-4 rounded-3xl text-sm leading-relaxed shadow-xl",
-              msg.role === 'user' ? "bg-white text-summer-text rounded-br-none border border-white/30" : "bg-summer-accent text-white font-medium rounded-bl-none"
-            )}>
-              {msg.content}
-            </div>
-          </motion.div>
-        ))}
-        {loading && (
-          <div className="flex justify-end">
-            <div className="bg-summer-accent/20 p-4 rounded-3xl rounded-bl-none animate-pulse flex items-center gap-2">
-              <div className="w-1.5 h-1.5 bg-summer-accent rounded-full animate-bounce" />
-              <div className="w-1.5 h-1.5 bg-summer-accent rounded-full animate-bounce [animation-delay:0.2s]" />
-              <div className="w-1.5 h-1.5 bg-summer-accent rounded-full animate-bounce [animation-delay:0.4s]" />
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="p-4 bg-summer-card border-t border-white/30">
-        <div className="flex gap-2">
-          <input 
-            placeholder="اسأل المستشار الذكي..."
-            className="flex-1 bg-white/40 border border-white/40 rounded-2xl px-5 py-4 text-summer-text outline-none focus:border-summer-accent transition-colors placeholder:text-summer-text/30"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && askAI()}
-          />
-          <button 
-            onClick={askAI}
-            className="w-14 h-14 summer-gradient text-white rounded-2xl flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-lg"
-          >
-            <ArrowUpRight size={24} />
-          </button>
+      <Header title="المساعد" profile={profile} />
+      <div className="flex-1 flex flex-col items-center justify-center text-center p-8 space-y-4">
+        <div className="w-20 h-20 bg-summer-accent/10 rounded-full flex items-center justify-center">
+          <Settings size={40} className="text-summer-accent" />
         </div>
+        <h3 className="text-xl font-bold text-summer-text">هذه الخدمة غير متوفرة</h3>
+        <p className="text-xs text-summer-text/50">تم إيقاف خدمات المساعد الذكي حالياً.</p>
       </div>
     </div>
   );
@@ -686,7 +423,6 @@ const FamilyPulse = ({ profile }: { profile: UserProfile }) => {
     <section className="bg-summer-card p-6 rounded-3xl border border-white/20 shadow-xl">
       <div className="flex justify-between items-center mb-6">
         <h3 className="text-sm font-bold text-summer-text/40 uppercase tracking-widest">نبض العائلة اليوم</h3>
-        <Sparkles size={16} className="text-summer-accent" />
       </div>
       
       <div className="grid grid-cols-3 gap-4">
@@ -711,78 +447,10 @@ const FamilyPulse = ({ profile }: { profile: UserProfile }) => {
           animate={{ opacity: 1, height: 'auto' }}
           className="text-center text-[10px] text-summer-accent mt-4 font-bold"
         >
-          شكراً لمشاركة شعورك! سيقوم المستشار الذكي بمراعاة ذلك في اقتراحاته.
+          شكراً لمشاركة شعورك!
         </motion.p>
       )}
     </section>
-  );
-};
-
-const AIWizard = ({ onTasksGenerated }: { onTasksGenerated: (tasks: any[]) => void }) => {
-  const [goal, setGoal] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  const generate = async () => {
-    if (!goal.trim() || loading) return;
-
-    const isSmartMode = localStorage.getItem('family_smart_mode') !== 'false';
-    if (!isSmartMode) {
-      onTasksGenerated([
-        { title: 'البدء بالمهمة الكبرى', description: `أول خطوة للوصول إلى: ${goal}`, points: 15 },
-        { title: 'تنظيم المستلزمات', description: 'تجهيز كل ما يلزم للهدف', points: 10 },
-        { title: 'خطوة صغيرة للأمام', description: 'إنجاز جزء بسيط ومهم الآن', points: 10 }
-      ]);
-      setGoal('');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const res = await fetch('/api/ai/generate-tasks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ goal }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      onTasksGenerated(data.tasks);
-      setGoal('');
-    } catch (err: any) {
-      console.error(err);
-      // Fallback for tasks
-      onTasksGenerated([
-        { title: 'البدء بالمهمة الكبرى', description: `أول خطوة للوصول إلى: ${goal}`, points: 15 },
-        { title: 'تنظيم المستلزمات', description: 'تجهيز كل ما يلزم للهدف', points: 10 },
-        { title: 'خطوة صغيرة للأمام', description: 'إنجاز جزء بسيط ومهم الآن', points: 10 }
-      ]);
-      setGoal('');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="space-y-4 pt-4 border-t border-white/20">
-      <div className="flex items-center gap-2 mb-2">
-        <Wand2 size={16} className="text-summer-accent" />
-        <h4 className="text-xs font-bold text-summer-accent">مولد المهام الذكي</h4>
-      </div>
-      <div className="flex gap-2">
-        <input 
-          placeholder="مثلاً: تنظيف البيت لعزيمة، الاستعداد للسفر..."
-          className="flex-1 bg-white/20 border border-white/30 rounded-xl px-4 py-3 text-xs text-summer-text outline-none focus:border-summer-accent placeholder:text-summer-text/30"
-          value={goal}
-          onChange={(e) => setGoal(e.target.value)}
-        />
-        <button 
-          onClick={generate}
-          disabled={loading}
-          className="bg-summer-accent/20 text-summer-accent px-4 rounded-xl hover:bg-summer-accent hover:text-white transition-all disabled:opacity-50"
-        >
-          {loading ? <Loader2 size={18} className="animate-spin" /> : 'توليد'}
-        </button>
-      </div>
-    </div>
   );
 };
 
@@ -901,10 +569,14 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
     
     const unsubscribeTasks = onSnapshot(q, (snapshot) => {
       setTasks(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Task)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'tasks');
     });
 
     const unsubscribeFamily = onSnapshot(collection(db, 'users'), (snapshot) => {
       setFamily(snapshot.docs.map(doc => doc.data() as UserProfile));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'users');
     });
 
     return () => {
@@ -915,25 +587,29 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
 
   const addTask = async () => {
     if (!newTitle) return;
-    const assignedUser = family.find(f => f.uid === newAssigned);
-    await addDoc(collection(db, 'tasks'), {
-      title: newTitle,
-      description: 'مهمة عائلية من الأهل',
-      points: Number(newPoints),
-      status: 'pending',
-      assignedTo: newAssigned,
-      assignedToName: assignedUser?.displayName || 'الجميع',
-      createdBy: profile.uid,
-      createdAt: serverTimestamp(),
-    });
+    try {
+      const assignedUser = family.find(f => f.uid === newAssigned);
+      await addDoc(collection(db, 'tasks'), {
+        title: newTitle,
+        description: 'مهمة عائلية من الأهل',
+        points: Number(newPoints),
+        status: 'pending',
+        assignedTo: newAssigned,
+        assignedToName: assignedUser?.displayName || 'الجميع',
+        createdBy: profile.uid,
+        createdAt: serverTimestamp(),
+      });
 
-    // Notify Child
-    if (newAssigned) {
-      await sendNotification(newAssigned, 'مهمة جديدة! 🚀', `لقد تم تكليفك بمهمة: ${newTitle}`, 'task');
+      // Notify Child
+      if (newAssigned) {
+        await sendNotification(newAssigned, 'مهمة جديدة! 🚀', `لقد تم تكليفك بمهمة: ${newTitle}`, 'task');
+      }
+
+      setNewTitle('');
+      setShowAdd(false);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'tasks');
     }
-
-    setNewTitle('');
-    setShowAdd(false);
   };
 
   const updateTask = async () => {
@@ -997,20 +673,24 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
   };
 
   const completeTask = async (task: Task) => {
-    await updateDoc(doc(db, 'tasks', task.id), { 
-      status: 'completed', 
-      completedAt: serverTimestamp() 
-    });
+    try {
+      await updateDoc(doc(db, 'tasks', task.id), { 
+        status: 'completed', 
+        completedAt: serverTimestamp() 
+      });
 
-    // Notify Parents
-    const parentUids = family.filter(f => f.role === 'parent').map(f => f.uid);
-    for (const parentUid of parentUids) {
-      await sendNotification(
-        parentUid, 
-        'إنجاز جديد! 🎉', 
-        `لقد أتم ${profile.displayName} مهمة: ${task.title}`, 
-        'task_completed'
-      );
+      // Notify Parents
+      const parentUids = family.filter(f => f.role === 'parent').map(f => f.uid);
+      for (const parentUid of parentUids) {
+        await sendNotification(
+          parentUid, 
+          'إنجاز جديد! 🎉', 
+          `لقد أتم ${profile.displayName} مهمة: ${task.title}`, 
+          'task_completed'
+        );
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `tasks/${task.id}`);
     }
   };
 
@@ -1064,14 +744,6 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
                   </select>
                 </div>
                 
-                <AIWizard onTasksGenerated={(generatedTasks) => {
-                  if (generatedTasks && generatedTasks.length > 0) {
-                     setNewTitle(generatedTasks[0].title);
-                     // For simplicity, we just set the first one or we could add multiple
-                     // In a real app we might want to show a picker
-                  }
-                }} />
-
                 <button 
                   onClick={addTask}
                   className="w-full summer-gradient text-white py-4 rounded-2xl font-black text-lg hover:shadow-lg transition-all shadow-lg active:scale-95"
@@ -1267,6 +939,8 @@ const ChatPage = ({ profile }: { profile: UserProfile }) => {
     const q = query(collection(db, 'messages'), orderBy('createdAt', 'desc'), limit(50));
     return onSnapshot(q, (snapshot) => {
       setMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message)).reverse());
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'messages');
     });
   }, []);
 
@@ -1581,6 +1255,8 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
     
     return onSnapshot(q, (snapshot) => {
       setRequests(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'transactions');
     });
   }, [profile.uid, isParent]);
 
@@ -1702,27 +1378,8 @@ const SettingsPage = ({ profile }: { profile: UserProfile }) => {
         <section className="bg-summer-card p-6 rounded-3xl border border-white/20 space-y-6 shadow-xl">
           <h3 className="font-bold text-summer-text flex items-center gap-2">
             <Settings size={18} className="text-summer-accent" />
-            إعدادات النظام الذكي
+            إعدادات النظام
           </h3>
-          
-          <div className="flex items-center justify-between p-4 bg-white/10 rounded-2xl border border-white/10">
-            <div>
-              <p className="text-sm font-bold text-summer-text">وضع الذكاء الاصطناعي (AI)</p>
-              <p className="text-[10px] text-summer-text/40">تفعيل اقتراحات المهام والتحديات الذكية</p>
-            </div>
-            <button 
-              onClick={() => setSmartMode(!smartMode)}
-              className={cn(
-                "w-14 h-8 rounded-full transition-all relative p-1",
-                smartMode ? "bg-summer-accent" : "bg-white/20"
-              )}
-            >
-              <motion.div 
-                animate={{ x: smartMode ? 24 : 0 }}
-                className="w-6 h-6 bg-white rounded-full shadow-md"
-              />
-            </button>
-          </div>
 
           <div className="space-y-4 pt-4 border-t border-white/10">
             <h3 className="font-bold text-summer-text">إعدادات النقاط</h3>
@@ -1757,77 +1414,8 @@ const SettingsPage = ({ profile }: { profile: UserProfile }) => {
   );
 };
 
-const SmartAdvisor = ({ points, prizes }: { points: number, prizes: Prize[] }) => {
-  const [advice, setAdvice] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
-  const isSmartMode = localStorage.getItem('family_smart_mode') !== 'false';
-
-  const getAdvice = async () => {
-    if (!isSmartMode) {
-      setAdvice({
-        advice: "نقاطك رائعة! ننصحك دائماً بموازنة مكافآتك بين المتعة والادخار للمستقبل.",
-        suggestion: "ما رأيك بتخصيص وقت للقراءة أو الرياضة اليوم؟"
-      });
-      return;
-    }
-    setLoading(true);
-    try {
-      const res = await fetch('/api/ai/reward-advisor', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          points, 
-          currentPrizes: prizes.map(p => p.title).join(', ') 
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      setAdvice(data);
-    } catch (err: any) {
-      console.error(err);
-      setAdvice({
-        advice: "نقاطك رائعة! جرب تقسيمها بين مكافأة فورية بسيطة وادخار الباقي لهدف أكبر.",
-        suggestion: "ما رأيك بفيلم عائلي مع الفشار الليلة؟"
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="bg-summer-accent/10 border border-summer-accent/20 p-6 rounded-3xl space-y-4 shadow-inner">
-      <div className="flex items-center justify-between">
-        <h3 className="font-bold text-summer-accent flex items-center gap-2">
-          {isSmartMode ? <Sparkles size={18} /> : <Wand2 size={18} />}
-          {isSmartMode ? 'المستشار الذكي للمكافآت' : 'دليل المكافآت العائلي'}
-        </h3>
-        {!advice && (
-          <button 
-            onClick={getAdvice}
-            disabled={loading}
-            className="text-xs font-black text-white bg-summer-accent px-4 py-2 rounded-xl shadow-lg hover:scale-105 transition-all disabled:opacity-50"
-          >
-            {loading ? 'جاري التحليل...' : isSmartMode ? 'احصل على نصيحة ذكية 💡' : 'نصيحة سريعة 💡'}
-          </button>
-        )}
-      </div>
-      {advice && (
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
-          <div className="relative p-4 bg-white/40 rounded-2xl border border-white/60">
-             <div className="absolute -top-3 -right-3 w-8 h-8 bg-summer-accent rounded-full flex items-center justify-center text-white shadow-lg">
-                <BrainCircuit size={16} />
-             </div>
-             <p className="text-sm text-summer-text leading-relaxed font-bold">"{advice.advice}"</p>
-          </div>
-          <div className="bg-summer-primary/10 p-4 rounded-xl border border-summer-primary/20">
-             <p className="text-[10px] text-summer-primary uppercase font-black mb-1 tracking-widest">{isSmartMode ? 'اقتراح ذكي:' : 'اقتراح عائلي:'}</p>
-             <p className="text-xs text-summer-text font-black">{advice.suggestion}</p>
-          </div>
-          <button onClick={() => setAdvice(null)} className="text-[9px] text-summer-accent font-bold uppercase tracking-widest mt-2 hover:underline">إغلاق</button>
-        </motion.div>
-      )}
-    </div>
-  );
+const SmartAdvisor = () => {
+  return null;
 };
 
 const ShopPage = ({ profile }: { profile: UserProfile }) => {
@@ -1840,18 +1428,24 @@ const ShopPage = ({ profile }: { profile: UserProfile }) => {
   useEffect(() => {
     return onSnapshot(collection(db, 'prizes'), (snapshot) => {
       setPrizes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Prize)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'prizes');
     });
   }, []);
 
   const addPrize = async () => {
     if (!newTitle) return;
-    await addDoc(collection(db, 'prizes'), {
-      title: newTitle,
-      cost: Number(newCost),
-      createdAt: serverTimestamp()
-    });
-    setNewTitle('');
-    setShowAdd(false);
+    try {
+      await addDoc(collection(db, 'prizes'), {
+        title: newTitle,
+        cost: Number(newCost),
+        createdAt: serverTimestamp()
+      });
+      setNewTitle('');
+      setShowAdd(false);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'prizes');
+    }
   };
 
   const buyPrize = async (prize: Prize) => {
@@ -1860,26 +1454,27 @@ const ShopPage = ({ profile }: { profile: UserProfile }) => {
       return;
     }
     
-    // 1. Deduct Points
-    await updateDoc(doc(db, 'users', profile.uid), {
-      points: profile.points - prize.cost
-    });
+    try {
+      // 1. Deduct Points
+      await updateDoc(doc(db, 'users', profile.uid), {
+        points: profile.points - prize.cost
+      });
 
-    // 2. Record Transaction
-    await addDoc(collection(db, 'transactions'), {
-      userId: profile.uid,
-      userName: profile.displayName,
-      type: 'prize_purchase',
-      prizeTitle: prize.title,
-      points: prize.cost,
-      status: 'approved',
-      requestedAt: serverTimestamp()
-    });
+      // 2. Record Transaction
+      await addDoc(collection(db, 'transactions'), {
+        userId: profile.uid,
+        userName: profile.displayName,
+        type: 'prize_purchase',
+        prizeTitle: prize.title,
+        points: prize.cost,
+        status: 'approved',
+        requestedAt: serverTimestamp()
+      });
 
-    // 3. Notify Parent
-    // Find parents and notify...
-    
-    alert(`تم شراء "${prize.title}" بنجاح! سيصلك تنبيه قريباً.`);
+      alert(`تم شراء "${prize.title}" بنجاح! سيصلك تنبيه قريباً.`);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'prize_purchase');
+    }
   };
 
   return (
@@ -1895,8 +1490,6 @@ const ShopPage = ({ profile }: { profile: UserProfile }) => {
             <ShoppingBag size={24} />
           </div>
         </div>
-
-        <SmartAdvisor points={profile.points} prizes={prizes} />
 
         {isParent && (
           <button 
@@ -1995,7 +1588,6 @@ export default function App() {
             <Route path="/" element={<Dashboard profile={profile} />} />
             <Route path="/tasks" element={<TasksPage profile={profile} />} />
             <Route path="/chat" element={<ChatPage profile={profile} />} />
-            <Route path="/assistant" element={<AIAssistant profile={profile} />} />
             <Route path="/wallet" element={<WalletPage profile={profile} />} />
             <Route path="/shop" element={<ShopPage profile={profile} />} />
             <Route path="/settings" element={<SettingsPage profile={profile} />} />
