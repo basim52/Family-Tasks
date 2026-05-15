@@ -255,9 +255,13 @@ const DailyChallengeCard = ({ profile }: { profile: UserProfile }) => {
         headers: { 'Content-Type': 'application/json' }
       });
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
       setChallenge(data);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      if (err.message?.includes('الحل') || err.message?.includes('429') || err.message?.includes('quota')) {
+        setChallenge({ title: 'تحدي القراءة', description: 'اقرأ صفحة واحدة من كتابك المفضل مع العائلة.', points: 10 });
+      }
     } finally {
       setLoading(false);
     }
@@ -330,10 +334,20 @@ const FamilyVisionBoard = () => {
         body: JSON.stringify({ familySnapshot: 'العائلة متحمسة للصيف وتبحث عن أنشطة بحرية' })
       });
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
       setGoals(data.goals);
       if (data.goals?.length > 0) setActiveGoal(data.goals[0]);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      if (err.message?.includes('الحل') || err.message?.includes('quota')) {
+        const fallbacks = [
+          { title: 'صيف القراء', icon: '📚' },
+          { title: 'مغامرات الطبيعة', icon: '🌳' },
+          { title: 'صناع المرح', icon: '🎨' }
+        ];
+        setGoals(fallbacks);
+        setActiveGoal(fallbacks[0]);
+      }
     } finally {
       setLoading(false);
     }
@@ -551,10 +565,15 @@ const AIAssistant = ({ profile }: { profile: UserProfile }) => {
         }),
       });
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'حدث خطأ غير متوقع');
       setMessages(prev => [...prev, { role: 'assistant', content: data.text }]);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setMessages(prev => [...prev, { role: 'assistant', content: 'عذراً، واجهت مشكلة في الاتصال بعقلي الاصطناعي. حاول مرة أخرى!' }]);
+      let fallbackMsg = 'عذراً، واجهت مشكلة في الاتصال بذكائي الاصطناعي. إليك نصيحة سريعة: الصبر والتحفيز هما مفتاح النجاح مع الأطفال اليوم!';
+      if (err.message?.includes('الحد الأقصى') || err.message?.includes('429')) {
+        fallbackMsg = 'أهلاً بك! نظراً للضغط العالي حالياً، أنا أعمل بوضع التوفير الذكي. نصيحتي لك اليوم: اجعل هدفك دائماً هو بناء ذكريات صيفية لا تُنسى مع أطفالك عبر المشاركة في مهامهم البسيطة والممتعة.';
+      }
+      setMessages(prev => [...prev, { role: 'assistant', content: fallbackMsg }]);
     } finally {
       setLoading(false);
     }
@@ -685,11 +704,22 @@ const AIWizard = ({ onTasksGenerated }: { onTasksGenerated: (tasks: any[]) => vo
         body: JSON.stringify({ goal }),
       });
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
       onTasksGenerated(data.tasks);
       setGoal('');
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert('فشل توليد المهام الذكية');
+      if (err.message?.includes('الحل') || err.message?.includes('quota')) {
+        // Fallback for tasks
+        onTasksGenerated([
+          { title: 'البدء بالمهمة الكبرى', description: `أول خطوة للوصول إلى: ${goal}`, points: 15 },
+          { title: 'تنظيم المستلزمات', description: 'تجهيز كل ما يلزم للهدف', points: 10 },
+          { title: 'خطوة صغيرة للأمام', description: 'إنجاز جزء بسيط ومهم الآن', points: 10 }
+        ]);
+        setGoal('');
+      } else {
+        alert('حدث خطأ في النظام. يرجى المحاولة لاحقاً.');
+      }
     } finally {
       setLoading(false);
     }
@@ -1678,9 +1708,16 @@ const SmartAdvisor = ({ points, prizes }: { points: number, prizes: Prize[] }) =
         }),
       });
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
       setAdvice(data);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      if (err.message?.includes('الحل') || err.message?.includes('quota')) {
+        setAdvice({
+          advice: "نقاطك رائعة! جرب تقسيمها بين مكافأة فورية بسيطة وادخار الباقي لهدف أكبر.",
+          suggestion: "ما رأيك بفيلم عائلي مع الفشار الليلة؟"
+        });
+      }
     } finally {
       setLoading(false);
     }
