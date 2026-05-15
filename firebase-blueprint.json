@@ -1,0 +1,95 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Family member profile",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "email": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string", "enum": ["parent", "child"] },
+        "points": { "type": "number" },
+        "currencyBalance": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "role", "points"]
+    },
+    "Task": {
+      "title": "Task",
+      "description": "Household chore assigned to a child",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "points": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "completed", "approved"] },
+        "assignedTo": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "completedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "points", "status", "createdBy"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Points redemption or reward",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "type": { "type": "string", "enum": ["earn", "redeem"] },
+        "points": { "type": "number" },
+        "currencyAmount": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "requestedAt": { "type": "string", "format": "date-time" },
+        "processedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "type", "points", "status"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "Chat message in family group",
+      "type": "object",
+      "properties": {
+        "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "content": { "type": "string" },
+        "type": { "type": "string", "enum": ["text", "image"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["senderId", "content", "type", "createdAt"]
+    },
+    "Config": {
+      "title": "Config",
+      "description": "Family settings like exchange rate",
+      "type": "object",
+      "properties": {
+        "pointExchangeRate": { "type": "number", "description": "1 point = X SAR" }
+      }
+    }
+  },
+  "firestore": {
+    "users": {
+      "schema": "User",
+      "description": "Store family member details"
+    },
+    "tasks": {
+      "schema": "Task",
+      "description": "Chore tracking"
+    },
+    "transactions": {
+      "schema": "Transaction",
+      "description": "Wallet history"
+    },
+    "messages": {
+      "schema": "Message",
+      "description": "Family chat history"
+    },
+    "config": {
+      "schema": "Config",
+      "description": "Global settings"
+    }
+  }
+}

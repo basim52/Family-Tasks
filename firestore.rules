@@ -1,0 +1,99 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isUser(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function getUserData(userId) {
+      return get(/databases/$(database)/documents/users/$(userId)).data;
+    }
+
+    function isParent() {
+      return isSignedIn() && getUserData(request.auth.uid).role == 'parent';
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Entity Validations
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'role', 'points']) 
+        && data.uid == request.auth.uid
+        && data.role in ['parent', 'child']
+        && data.points is number
+        && data.points >= 0;
+    }
+
+    function isValidTask(data) {
+      return data.keys().hasAll(['title', 'points', 'status', 'createdBy'])
+        && data.title is string && data.title.size() <= 200
+        && data.points is number && data.points >= 0
+        && data.status in ['pending', 'completed', 'approved']
+        && data.createdBy == request.auth.uid;
+    }
+
+    function isValidTransaction(data) {
+      return data.keys().hasAll(['userId', 'type', 'points', 'status'])
+        && data.userId == request.auth.uid
+        && data.type in ['earn', 'redeem']
+        && data.points is number && data.points >= 0
+        && data.status == 'pending';
+    }
+
+    function isValidMessage(data) {
+      return data.keys().hasAll(['senderId', 'content', 'type', 'createdAt'])
+        && data.senderId == request.auth.uid
+        && data.content is string && data.content.size() <= 2000
+        && data.type in ['text', 'image']
+        && data.createdAt == request.time;
+    }
+
+    // Collection Rules
+
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isUser(userId) && isValidUser(request.resource.data);
+      allow update: if isUser(userId) 
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL'])
+        || isParent();
+    }
+
+    match /tasks/{taskId} {
+      allow read: if isSignedIn();
+      allow create: if isParent() && isValidTask(request.resource.data);
+      allow update: if isParent() 
+        || (isSignedIn() && resource.data.assignedTo == request.auth.uid 
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'completedAt'])
+            && request.resource.data.status == 'completed');
+      allow delete: if isParent();
+    }
+
+    match /transactions/{transactionId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isParent());
+      allow create: if isSignedIn() && isValidTransaction(request.resource.data);
+      allow update: if isParent() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'processedAt']);
+    }
+
+    match /messages/{messageId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidMessage(request.resource.data);
+    }
+
+    match /config/{configId} {
+      allow read: if isSignedIn();
+      allow write: if isParent();
+    }
+  }
+}
