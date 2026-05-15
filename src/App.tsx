@@ -250,7 +250,10 @@ const DailyChallengeCard = ({ profile }: { profile: UserProfile }) => {
   const fetchChallenge = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/ai/daily-challenge', { method: 'POST' });
+      const res = await fetch('/api/ai/daily-challenge', { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
       const data = await res.json();
       setChallenge(data);
     } catch (err) {

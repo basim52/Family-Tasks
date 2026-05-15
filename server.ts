@@ -23,6 +23,19 @@ async function startServer() {
   });
 
   // API Routes
+  app.use("/api", (req, res, next) => {
+    console.log(`${req.method} ${req.originalUrl}`);
+    next();
+  });
+
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "ok", env: process.env.NODE_ENV, time: new Date().toISOString() });
+  });
+
+  const cleanJson = (text: string) => {
+    return (text || '').replace(/```json\n?|```/g, '').trim();
+  };
+
   app.post("/api/ai/chat", async (req, res) => {
     try {
       const { prompt, context } = req.body;
@@ -51,10 +64,10 @@ async function startServer() {
           responseMimeType: "application/json",
         },
       });
-      res.json(JSON.parse(response.text || '{}'));
+      res.json(JSON.parse(cleanJson(response.text) || '{}'));
     } catch (error: any) {
       console.error("Gemini Task Gen Error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: error.message, stack: error.stack });
     }
   });
 
@@ -68,10 +81,10 @@ async function startServer() {
           responseMimeType: "application/json",
         },
       });
-      res.json(JSON.parse(response.text || '{}'));
+      res.json(JSON.parse(cleanJson(response.text) || '{}'));
     } catch (error: any) {
       console.error("Gemini Challenge Error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: error.message, stack: error.stack });
     }
   });
 
@@ -86,10 +99,10 @@ async function startServer() {
           responseMimeType: "application/json",
         },
       });
-      res.json(JSON.parse(response.text || '{}'));
+      res.json(JSON.parse(cleanJson(response.text) || '{}'));
     } catch (error: any) {
       console.error("Gemini Vision Error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: error.message, stack: error.stack });
     }
   });
 
@@ -104,10 +117,23 @@ async function startServer() {
           responseMimeType: "application/json",
         },
       });
-      res.json(JSON.parse(response.text || '{}'));
+      res.json(JSON.parse(cleanJson(response.text) || '{}'));
     } catch (error: any) {
       console.error("Gemini Advisor Error:", error);
-      res.status(500).json({ error: error.message });
+      res.status(500).json({ error: error.message, stack: error.stack });
+    }
+  });
+
+  app.use("/api", (req, res) => {
+    res.status(404).json({ error: `API route not found: ${req.method} ${req.originalUrl}` });
+  });
+
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error(err);
+    if (req.path.startsWith('/api')) {
+      res.status(500).json({ error: err.message || 'Internal Server Error' });
+    } else {
+      next(err);
     }
   });
 
