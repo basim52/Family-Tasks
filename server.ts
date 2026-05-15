@@ -66,7 +66,7 @@ async function startServer() {
       const { prompt, context } = req.body;
       try {
         const response = await ai.models.generateContent({
-          model: "gemini-2.0-flash-exp",
+          model: "gemini-3-flash-preview",
           contents: `${context ? `Context: ${context}\n\n` : ''}${prompt}`,
           config: {
             systemInstruction: "أنت مساعد عائلي ذكي وخبير في التربية وإدارة شؤون المنزل. تساعد العائلات السعودية في تنظيم وقتهم، تحفيز أطفالهم، وتوفير نصائح عملية. تحدث دائماً باللغة العربية بأسلوب ودود ومهني.",
@@ -74,9 +74,9 @@ async function startServer() {
         });
         res.json({ text: response.text });
       } catch (aiErr: any) {
-        console.warn("AI Chat failed, using fallback:", aiErr.message);
+        console.warn("AI Chat failed:", aiErr.message || aiErr);
         res.json({ 
-          text: "أهلاً بك! حالياً أنا في وضع الاستعداد البسيط. كيف يمكنني مساعدتك في تنظيم مهام العائلة اليوم؟ تذكر أن التعاون هو سر النجاح!", 
+          text: "أهلاً بك! النظام يعمل حالياً في وضع 'المشاركة العائلية'. تعاونكم اليوم هو سر السعادة والنجاح في بناء ذكريات صيفية رائعة!", 
           isFallback: true 
         });
       }
@@ -90,7 +90,7 @@ async function startServer() {
       const { goal } = req.body;
       try {
         const response = await ai.models.generateContent({
-          model: "gemini-2.0-flash-exp",
+          model: "gemini-3-flash-preview",
           contents: `حول هذا الهدف إلى 3-5 مهام عائلية محددة وقابلة للقياس: "${goal}"`,
           config: {
             systemInstruction: "أنت مساعد لإدارة المهام. حول الأهداف العامة إلى مهام صغيرة وواضحة. ارجع الإجابة بتنسيق JSON: { \"tasks\": [ { \"title\": \"...\", \"description\": \"...\", \"points\": 10 } ] }",
@@ -99,13 +99,13 @@ async function startServer() {
         });
         res.json(JSON.parse(cleanJson(response.text) || '{}'));
       } catch (aiErr: any) {
-        console.warn("AI Task Gen failed, using fallback:", aiErr.message);
+        console.warn("AI Task Gen failed:", aiErr.message || aiErr);
         res.json({
           tasks: [
-            { title: "التخطيط المبدئي", description: `وضع خطة عمل واضحة لهدف: ${goal}`, points: 10 },
-            { title: "تجهيز المتطلبات", description: "جمع كل ما يلزم للبدء بالخطة", points: 15 },
-            { title: "الخطوة الأولى", description: "تنفيذ أول جزء عملي من الهدف", points: 20 },
-            { title: "مراجعة التقدم", description: "جلسة قصيرة لتقييم ما تم إنجازه", points: 10 }
+            { title: "الخطوة الأولى", description: `بدء العمل على هدف: ${goal}`, points: 10 },
+            { title: "تجهيز الأدوات", description: "توفير كل ما يلزم للانطلاق", points: 15 },
+            { title: "التنفيذ الجماعي", description: "عمل مشترك بين أفراد العائلة", points: 20 },
+            { title: "الاحتفال بالإنجاز", description: "مراجعة ما تم بتقدير واهتمام", points: 10 }
           ],
           isFallback: true
         });
@@ -119,7 +119,7 @@ async function startServer() {
     try {
       try {
         const response = await ai.models.generateContent({
-          model: "gemini-2.0-flash-exp",
+          model: "gemini-3-flash-preview",
           contents: "ولد تحدي عائلي صغير (Micro-challenge) لليوم. يجب أن يكون بسيطاً، ممتعاً، ويشجع على القيم العائلية. ارجع الإجابة بتنسيق JSON: { \"title\": \"...\", \"description\": \"...\", \"points\": 5 }",
           config: {
             systemInstruction: "أنت محفز عائلي. التحدي يجب أن يكون قابلاً للتنفيذ في أقل من 10 دقائق.",
@@ -128,7 +128,7 @@ async function startServer() {
         });
         res.json(JSON.parse(cleanJson(response.text) || '{}'));
       } catch (aiErr: any) {
-        console.warn("AI Daily Challenge failed, using fallback:", aiErr.message);
+        console.warn("AI Daily Challenge failed:", aiErr.message || aiErr);
         const randomChallenge = localFallbacks.challenges[Math.floor(Math.random() * localFallbacks.challenges.length)];
         res.json({ ...randomChallenge, isFallback: true });
       }
@@ -142,7 +142,7 @@ async function startServer() {
       const { familySnapshot } = req.body;
       try {
         const response = await ai.models.generateContent({
-          model: "gemini-2.0-flash-exp",
+          model: "gemini-3-flash-preview",
           contents: `بناءً على نشاط العائلة الأخير: "${familySnapshot}"، اقترح 3 أهداف رؤية ملهمة للصيف. ارجع الإجابة بتنسيق JSON: { \"goals\": [ { \"title\": \"...\", \"icon\": \"Emoji\" } ] }`,
           config: {
             systemInstruction: "أنت مستشار رؤية عائلي. الأهداف يجب أن تركز على الترابط والنمو والمرح الصيفي.",
@@ -151,7 +151,7 @@ async function startServer() {
         });
         res.json(JSON.parse(cleanJson(response.text) || '{}'));
       } catch (aiErr: any) {
-        console.warn("AI Vision Board failed, using fallback:", aiErr.message);
+        console.warn("AI Vision Board failed:", aiErr.message || aiErr);
         const shuffled = [...localFallbacks.visionGoals].sort(() => 0.5 - Math.random());
         res.json({ goals: shuffled.slice(0, 3), isFallback: true });
       }
@@ -165,7 +165,7 @@ async function startServer() {
       const { points, currentPrizes } = req.body;
       try {
         const response = await ai.models.generateContent({
-          model: "gemini-2.0-flash-exp",
+          model: "gemini-3-flash-preview",
           contents: `الطفل لديه ${points} نقطة. المكافآت المتاحة: ${currentPrizes}. اقترح مكافأة ذكية "خارج الصندوق" أو نصيحة للادخار. ارجع الإجابة بتنسيق JSON: { \"advice\": \"...\", \"suggestion\": \"...\" }`,
           config: {
             systemInstruction: "أنت خبير في التحفيز الإيجابي. قدم نصيحة مشجعة وذكية.",
@@ -174,11 +174,11 @@ async function startServer() {
         });
         res.json(JSON.parse(cleanJson(response.text) || '{}'));
       } catch (aiErr: any) {
-        console.warn("AI Reward Advisor failed, using fallback:", aiErr.message);
+        console.warn("AI Reward Advisor failed:", aiErr.message || aiErr);
         const randomPrize = localFallbacks.prizes[Math.floor(Math.random() * localFallbacks.prizes.length)];
         res.json({ 
-          advice: `رائع! لديك ${points} نقطة. نقترح استثمار بعض النقاط وتوفير الباقي.`, 
-          suggestion: `ما رأيك بـ: ${randomPrize}؟`,
+          advice: `رائع! لديك ${points} نقطة. استمر في جهودك المميزة!`, 
+          suggestion: `جرب الحصول على: ${randomPrize} كمكافأة مستحقة.`,
           isFallback: true 
         });
       }
