@@ -22,12 +22,15 @@ service cloud.firestore {
     function isParent() {
       return isSignedIn() && (
         request.auth.token.email == 'basim5252@gmail.com' ||
-        getUserData(request.auth.uid).role == 'parent'
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'parent')
       );
     }
 
     function isChild() {
-      return isSignedIn() && getUserData(request.auth.uid).role == 'child';
+      return isSignedIn() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'child';
     }
 
     function isValidId(id) {
@@ -67,7 +70,7 @@ service cloud.firestore {
     }
 
     function isValidNotification(data) {
-      return data.keys().hasAll(['userId', 'title', 'body', 'read', 'createdAt'])
+      return data.keys().hasAll(['userId', 'title', 'body', 'read', 'createdAt', 'type'])
         && data.userId is string
         && data.title is string && data.title.size() <= 200
         && data.read == false
@@ -80,14 +83,31 @@ service cloud.firestore {
         && data.cost is number && data.cost >= 0;
     }
 
+    function isValidBigGoal(data) {
+      return data.keys().hasAll(['title', 'targetPoints', 'userId', 'status'])
+        && data.title is string && data.title.size() <= 200
+        && data.targetPoints is number && data.targetPoints >= 0
+        && data.userId is string
+        && data.status in ['active', 'completed'];
+    }
+
+    function isValidMonthlyReward(data) {
+      return data.keys().hasAll(['title', 'cost', 'month', 'createdAt'])
+        && data.title is string && data.title.size() <= 200
+        && data.cost is number && data.cost >= 0
+        && data.month is string
+        && data.createdAt == request.time;
+    }
+
     // Collection Rules
 
     match /users/{userId} {
-      allow get: if isSignedIn();
-      allow list: if isSignedIn();
+      allow get, list: if isSignedIn();
       allow create: if isUser(userId) && isValidUser(request.resource.data);
-      allow update: if (isUser(userId) 
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL']))
+      allow update: if (isUser(userId) && (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL']) ||
+          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['points']) && request.resource.data.points < resource.data.points)
+        ))
         || isParent();
     }
 
@@ -109,7 +129,10 @@ service cloud.firestore {
 
     match /transactions/{transactionId} {
       allow get, list: if isSignedIn() && (resource.data.userId == request.auth.uid || isParent());
-      allow create: if isSignedIn() && isValidTransaction(request.resource.data) && request.resource.data.status == 'pending';
+      allow create: if isSignedIn() && isValidTransaction(request.resource.data) && (
+        request.resource.data.status == 'pending' ||
+        (isChild() && (request.resource.data.type == 'redeem' || request.resource.data.type == 'prize_purchase') && request.resource.data.status == 'approved')
+      );
       allow update: if isParent();
     }
 
@@ -135,6 +158,20 @@ service cloud.firestore {
     match /config/{configId} {
       allow get, list: if isSignedIn();
       allow write: if isParent();
+    }
+
+    match /bigGoals/{goalId} {
+      allow read: if isSignedIn() && (isParent() || resource.data.userId == request.auth.uid);
+      allow create: if isParent() && isValidBigGoal(request.resource.data);
+      allow update: if isParent();
+      allow delete: if isParent();
+    }
+
+    match /monthlyRewards/{rewardId} {
+      allow read: if isSignedIn();
+      allow create: if isParent() && isValidMonthlyReward(request.resource.data);
+      allow update: if isParent() || (isChild() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['claimedBy']));
+      allow delete: if isParent();
     }
   }
 }

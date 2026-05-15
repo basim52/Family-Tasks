@@ -20,6 +20,8 @@ import {
   Star,
   PlusCircle as PlusCircleIcon,
   CheckCircle2,
+  Target,
+  Trophy,
   Settings,
   ShoppingBag,
   Heart,
@@ -28,7 +30,8 @@ import {
   X,
   Smile,
   Frown,
-  Meh
+  Meh,
+  Plus
 } from 'lucide-react';
 import { auth, db, storage } from './lib/firebase';
 import { useAuth } from './hooks/useAuth';
@@ -46,11 +49,13 @@ import {
   serverTimestamp, 
   updateDoc, 
   doc,
+  deleteDoc,
+  arrayUnion,
   limit,
   getDoc
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { Task, Message, UserProfile, Prize, TaskComment } from './types';
+import { Task, Message, UserProfile, Prize, TaskComment, BigGoal, MonthlyReward } from './types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -218,11 +223,33 @@ const NotificationCentre = ({ profile }: { profile: UserProfile }) => {
     <div className="relative">
       <button 
         onClick={() => setIsOpen(!isOpen)}
-        className="p-3 bg-white/20 rounded-2xl hover:bg-white/30 transition-colors relative"
+        className="p-3 bg-white/20 rounded-2xl hover:bg-white/30 transition-colors relative group"
       >
-        <Bell size={20} className="text-summer-text" />
+        <motion.div
+          animate={unreadCount > 0 ? {
+            rotate: [0, -15, 12, -15, 12, 0],
+            transition: {
+              repeat: Infinity,
+              duration: 2.5,
+              repeatDelay: 1.5
+            }
+          } : {}}
+        >
+          <Bell size={20} className={cn("transition-colors", unreadCount > 0 ? "text-summer-accent" : "text-summer-text")} />
+        </motion.div>
+        
         {unreadCount > 0 && (
-          <span className="absolute top-3 right-3 w-4 h-4 bg-red-500 border-2 border-summer-bg rounded-full text-[8px] flex items-center justify-center font-bold text-white">{unreadCount}</span>
+          <div className="absolute top-2.5 right-2.5 flex items-center justify-center">
+            <span className="relative z-10 w-4.5 h-4.5 bg-red-500 border-2 border-white/40 rounded-full text-[8px] flex items-center justify-center font-black text-white shadow-lg">
+              {unreadCount}
+            </span>
+            <motion.span 
+              initial={{ scale: 0.8, opacity: 0.8 }}
+              animate={{ scale: 1.8, opacity: 0 }}
+              transition={{ repeat: Infinity, duration: 1.5, ease: "easeOut" }}
+              className="absolute w-4 h-4 bg-red-500 rounded-full"
+            />
+          </div>
         )}
       </button>
 
@@ -275,7 +302,590 @@ const Header = ({ title, profile, actions }: { title: string, profile: UserProfi
   </header>
 );
 
-// --- Smart Achievement & Progress Components ---
+// --- Family Strategy & Suggestions ---
+
+const SUGGESTED_PLANS = {
+  tasks: [
+    { title: '🌱 سقي نباتات المنزل', points: 10, category: 'مسؤولية' },
+    { title: '📚 قراءة لمدة 15 دقيقة', points: 15, category: 'تطوير' },
+    { title: '🍽️ المساعدة في تجهيز السفرة', points: 10, category: 'تعاون' },
+    { title: '🧸 ترتيب الألعاب بدقة', points: 20, category: 'تنظيم' },
+    { title: '🥣 غسل الأطباق الخاصة بي', points: 15, category: 'مسؤولية' },
+    { title: '👟 تنظيف الحذاء المدرسي/الرياضي', points: 10, category: 'عناية' }
+  ],
+  bigGoals: [
+    { title: '☕ رحلة للمقهى المفضل مع الأهل', target: 300, icon: '☕' },
+    { title: '🎡 ذهاب لمدينة الملاهي', target: 1000, icon: '🎡' },
+    { title: '🍦 آيسكريم مميز في نهاية الأسبوع', target: 150, icon: '🍦' },
+    { title: '📽️ اختيار فيلم السهرة مع الفشار', target: 200, icon: '📽️' },
+    { title: '🎁 شراء لعبة جديدة (ميزانية محددة)', target: 800, icon: '🎁' }
+  ],
+  monthlyRewards: [
+    { title: '🍕 حفل بيتزا ليلة الجمعة', cost: 150 },
+    { title: '🎮 بطاقة شحن ألعاب', cost: 300 },
+    { title: '🌙 سهرة متأخرة ساعة إضافية', cost: 100 },
+    { title: '🎨 طقم تلوين جديد', cost: 250 },
+    { title: '👟 حذاء رياضي من اختيارك', cost: 1000 }
+  ]
+};
+
+const SuggestionsLibrary = ({ onSelectTask, onSelectGoal, onSelectMonthly }: { 
+  onSelectTask?: (task: any) => void, 
+  onSelectGoal?: (goal: any) => void,
+  onSelectMonthly?: (reward: any) => void
+}) => {
+  return (
+    <div className="space-y-6">
+      {onSelectTask && (
+        <div className="space-y-3">
+          <h4 className="text-[10px] font-black text-summer-accent uppercase tracking-widest px-1">مقترحات مهام ذكية 💡</h4>
+          <div className="flex flex-wrap gap-2">
+            {SUGGESTED_PLANS.tasks.map((task, i) => (
+              <button 
+                key={i}
+                onClick={() => onSelectTask(task)}
+                className="bg-white/40 border border-white/60 px-3 py-2 rounded-xl text-[10px] font-bold text-summer-text hover:bg-summer-accent hover:text-white transition-all shadow-sm"
+              >
+                {task.title} (+{task.points})
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {onSelectGoal && (
+        <div className="space-y-3">
+          <h4 className="text-[10px] font-black text-summer-accent uppercase tracking-widest px-1">أهداف كبيرة مقترحة 🎯</h4>
+          <div className="grid grid-cols-1 gap-2">
+            {SUGGESTED_PLANS.bigGoals.map((goal, i) => (
+              <button 
+                key={i}
+                onClick={() => onSelectGoal(goal)}
+                className="flex items-center justify-between bg-white/40 border border-white/60 p-3 rounded-xl text-[11px] font-bold text-summer-text hover:border-summer-accent transition-all group"
+              >
+                <span className="flex items-center gap-2">
+                  <span className="text-sm">{goal.icon}</span>
+                  {goal.title}
+                </span>
+                <span className="bg-summer-accent/10 text-summer-accent px-2 py-0.5 rounded-lg group-hover:bg-summer-accent group-hover:text-white transition-colors">
+                  {goal.target} ن
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {onSelectMonthly && (
+        <div className="space-y-3">
+          <h4 className="text-[10px] font-black text-summer-accent uppercase tracking-widest px-1">جوائز شهرية مقترحة 🎁</h4>
+          <div className="flex flex-wrap gap-2">
+            {SUGGESTED_PLANS.monthlyRewards.map((reward, i) => (
+              <button 
+                key={i}
+                onClick={() => onSelectMonthly(reward)}
+                className="bg-white/40 border border-white/60 px-3 py-2 rounded-xl text-[10px] font-bold text-summer-text hover:bg-summer-accent hover:text-white transition-all shadow-sm"
+              >
+                {reward.title} ({reward.cost} ن)
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const SmartAchievement = ({ totalPoints }: { totalPoints: number }) => {
+  const levels = [
+    { name: 'مبتدئ', min: 0, max: 200, color: 'from-slate-400 to-slate-500' },
+    { name: 'برونزي', min: 200, max: 500, color: 'from-amber-600 to-amber-700' },
+    { name: 'فضي', min: 500, max: 1000, color: 'from-gray-300 to-gray-400' },
+    { name: 'ذهبي', min: 1000, max: Infinity, color: 'from-yellow-400 to-yellow-600' }
+  ];
+
+  const currentLevel = levels.find(l => totalPoints >= l.min && totalPoints < l.max) || levels[0];
+  const progress = totalPoints < 1000 ? ((totalPoints - currentLevel.min) / (currentLevel.max - currentLevel.min)) * 100 : 100;
+
+  return (
+    <div className="bg-summer-card p-6 rounded-3xl border border-white/20 shadow-xl space-y-4">
+      <div className="flex justify-between items-center">
+        <h3 className="text-xs font-black text-summer-text/40 uppercase tracking-widest">إنجازاتك</h3>
+        <Trophy size={18} className="text-summer-accent" />
+      </div>
+      <div className="flex items-center gap-4">
+        <div className={cn("w-16 h-16 rounded-2xl flex items-center justify-center bg-gradient-to-br text-white shadow-lg", currentLevel.color)}>
+           <Star size={32} />
+        </div>
+        <div className="flex-1">
+          <p className="text-xl font-black text-summer-text">{currentLevel.name}</p>
+          <div className="mt-2 h-2 w-full bg-white/20 rounded-full overflow-hidden">
+             <motion.div 
+               initial={{ width: 0 }}
+               animate={{ width: `${progress}%` }}
+               className="h-full summer-gradient"
+             />
+          </div>
+          <p className="text-[10px] mt-1 text-summer-text/40 font-bold">
+            {totalPoints < 1000 ? `بقي ${currentLevel.max - totalPoints} نقطة للمستوى التالي` : 'أنت في القمة!'}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const BigGoalCard = ({ profile }: { profile: UserProfile }) => {
+  const [goal, setGoal] = useState<BigGoal | null>(null);
+
+  useEffect(() => {
+    const q = query(
+      collection(db, 'bigGoals'),
+      where('userId', '==', profile.uid),
+      where('status', '==', 'active'),
+      limit(1)
+    );
+    return onSnapshot(q, (snapshot) => {
+      if (!snapshot.empty) {
+        setGoal({ id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as BigGoal);
+      } else {
+        setGoal(null);
+      }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'bigGoals');
+    });
+  }, [profile.uid]);
+
+  if (!goal) return null;
+
+  const progress = Math.min(100, (profile.points / goal.targetPoints) * 100);
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      className="bg-summer-card p-6 rounded-[2.5rem] border border-white/40 shadow-2xl relative overflow-hidden group"
+    >
+      <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:scale-110 transition-transform duration-700">
+        <Target size={120} />
+      </div>
+      
+      <div className="flex justify-between items-start mb-6">
+        <div>
+          <h4 className="text-[10px] font-black text-summer-accent uppercase tracking-[0.2em] mb-1">الهدف العائلي الكبير 🎯</h4>
+          <h3 className="text-2xl font-black text-summer-text tracking-tight">{goal.title}</h3>
+        </div>
+        <div className="bg-summer-accent text-white px-4 py-2 rounded-2xl font-black shadow-lg flex items-center gap-2">
+          <span>{goal.targetPoints}</span>
+          <Star size={14} className="animate-spin-slow" />
+        </div>
+      </div>
+
+      <div className="space-y-5">
+        <div className="flex justify-between text-[11px] font-black text-summer-text/50 uppercase tracking-wider">
+          <span>{profile.points} مجمعة</span>
+          <span>{goal.targetPoints} للهدف</span>
+        </div>
+        <div className="h-6 bg-white/20 rounded-full overflow-hidden border border-white/20 shadow-inner group-hover:border-summer-accent/30 transition-colors">
+          <motion.div 
+            initial={{ width: 0 }}
+            animate={{ width: `${progress}%` }}
+            className="h-full summer-gradient relative"
+          >
+            {progress > 5 && (
+              <div className="absolute right-0 top-0 bottom-0 w-8 bg-white/20 animate-pulse" />
+            )}
+          </motion.div>
+        </div>
+        <motion.p 
+          animate={progress >= 100 ? { scale: [1, 1.1, 1] } : {}}
+          transition={{ repeat: Infinity, duration: 2 }}
+          className="text-center text-[10px] font-black text-summer-accent uppercase tracking-widest bg-white/20 py-2 rounded-xl"
+        >
+          {progress >= 100 ? '🎉 مبروك! الهدف بانتظارك 🎉' : `هيا يا بطل! بقي ${goal.targetPoints - profile.points} نقطة للوصول ✨`}
+        </motion.p>
+      </div>
+    </motion.div>
+  );
+};
+
+const BigGoalManager: React.FC<{ childUid: string; childName: string }> = ({ childUid, childName }) => {
+  const [goal, setGoal] = useState<BigGoal | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
+  const [newTarget, setNewTarget] = useState(500);
+
+  useEffect(() => {
+    const q = query(
+      collection(db, 'bigGoals'),
+      where('userId', '==', childUid),
+      where('status', '==', 'active'),
+      limit(1)
+    );
+    return onSnapshot(q, (snapshot) => {
+      if (!snapshot.empty) {
+        setGoal({ id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as BigGoal);
+      } else {
+        setGoal(null);
+      }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'bigGoals');
+    });
+  }, [childUid]);
+
+  const addGoal = async () => {
+    if (!newTitle) return;
+    await addDoc(collection(db, 'bigGoals'), {
+      title: newTitle,
+      targetPoints: Number(newTarget),
+      userId: childUid,
+      status: 'active',
+      createdAt: serverTimestamp()
+    });
+    setNewTitle('');
+    setShowAdd(false);
+  };
+
+  const deleteGoal = async (id: string) => {
+    if (confirm('هل أنت متأكد من حذف هذا الهدف؟')) {
+      await updateDoc(doc(db, 'bigGoals', id), { status: 'completed' });
+    }
+  };
+
+  return (
+    <div className="p-5 bg-white/10 rounded-3xl border border-white/10 shadow-inner group hover:border-white/30 transition-all">
+      <div className="flex justify-between items-center mb-4">
+        <h5 className="text-[10px] font-black text-summer-text/40 uppercase tracking-widest flex items-center gap-2">
+          <Target size={12} className="text-summer-accent" />
+          الهدف الكبير لـ {childName}
+        </h5>
+        {!goal && !showAdd && (
+          <button 
+            onClick={() => setShowAdd(true)} 
+            className="bg-summer-accent/10 text-summer-accent text-[9px] font-black uppercase px-3 py-1.5 rounded-lg border border-summer-accent/20 hover:bg-summer-accent hover:text-white transition-all"
+          >
+            إعداد الهدف +
+          </button>
+        )}
+      </div>
+
+      {goal ? (
+        <div className="flex justify-between items-center bg-white/20 p-4 rounded-2xl border border-white/10 hover:border-summer-accent/20 transition-all">
+          <div>
+            <p className="text-sm font-black text-summer-text mb-0.5">{goal.title}</p>
+            <div className="flex items-center gap-1.5">
+               <span className="text-[10px] font-black text-summer-accent">{goal.targetPoints} نقطة</span>
+               <div className="w-1 h-1 bg-summer-text/20 rounded-full" />
+               <span className="text-[10px] font-bold text-summer-text/30">نشط</span>
+            </div>
+          </div>
+          <button onClick={() => deleteGoal(goal.id)} className="w-10 h-10 bg-red-500/10 text-red-500 rounded-xl flex items-center justify-center hover:bg-red-500 hover:text-white transition-all shadow-sm">
+            <X size={18} />
+          </button>
+        </div>
+      ) : showAdd ? (
+        <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+          <input 
+            placeholder="الهدف (مثلاً: يوم في الملاهي 🎠)"
+            className="w-full bg-white/30 border border-white/30 rounded-2xl px-5 py-3.5 text-xs text-summer-text outline-none focus:border-summer-accent placeholder:text-summer-text/30 transition-all"
+            value={newTitle}
+            onChange={(e) => setNewTitle(e.target.value)}
+          />
+          <div className="flex gap-2">
+            <input 
+              type="number"
+              placeholder="النقاط"
+              className="flex-1 bg-white/30 border border-white/30 rounded-2xl px-5 py-3.5 text-xs text-summer-text outline-none focus:border-summer-accent transition-all"
+              value={newTarget}
+              onChange={(e) => setNewTarget(Number(e.target.value))}
+            />
+            <button 
+              onClick={addGoal} 
+              className="bg-summer-accent text-white px-6 rounded-2xl text-[10px] font-black shadow-lg hover:scale-105 active:scale-95 transition-all"
+            >
+              حفظ
+            </button>
+            <button 
+              onClick={() => setShowAdd(false)} 
+              className="text-summer-text/40 px-3 text-[10px] font-bold hover:text-summer-text transition-colors"
+            >
+              إلغاء
+            </button>
+          </div>
+          <div className="pt-2">
+            <SuggestionsLibrary onSelectGoal={(goal) => {
+              setNewTitle(goal.title);
+              setNewTarget(goal.target);
+            }} />
+          </div>
+        </div>
+      ) : (
+        <p className="text-[10px] text-summer-text/20 text-center py-4 italic font-bold">لم يتم تحديد هدف كبير لهذا الطفل بعد</p>
+      )}
+    </div>
+  );
+};
+
+const FamilyBigGoals = () => {
+  const [children, setChildren] = useState<UserProfile[]>([]);
+
+  useEffect(() => {
+    const q = query(collection(db, 'users'), where('role', '==', 'child'));
+    return onSnapshot(q, (snapshot) => {
+      setChildren(snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'users');
+    });
+  }, []);
+
+  return (
+    <section className="space-y-4">
+      <h3 className="text-sm font-bold text-summer-text/40 uppercase tracking-[0.2em] px-1 whitespace-nowrap">إدارة الأهداف الكبيرة 🎯</h3>
+      <div className="grid grid-cols-1 gap-4">
+        {children.map(child => (
+          <BigGoalManager key={child.uid} childUid={child.uid} childName={child.displayName} />
+        ))}
+        {children.length === 0 && (
+          <p className="text-xs text-summer-text/40 bg-white/10 p-6 rounded-3xl text-center italic">لا يوجد أطفال مضافين حالياً</p>
+        )}
+      </div>
+    </section>
+  );
+};
+
+const MonthlyRewardsManager = () => {
+  const [rewards, setRewards] = useState<MonthlyReward[]>([]);
+  const [showAdd, setShowAdd] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
+  const [newCost, setNewCost] = useState(100);
+  const currentMonth = new Date().toISOString().slice(0, 7);
+
+  useEffect(() => {
+    const q = query(collection(db, 'monthlyRewards'), where('month', '==', currentMonth));
+    return onSnapshot(q, (snapshot) => {
+      setRewards(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as MonthlyReward)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'monthlyRewards');
+    });
+  }, [currentMonth]);
+
+  const addReward = async () => {
+    if (!newTitle) return;
+    await addDoc(collection(db, 'monthlyRewards'), {
+      title: newTitle,
+      cost: Number(newCost),
+      month: currentMonth,
+      createdAt: serverTimestamp(),
+      claimedBy: []
+    });
+    setNewTitle('');
+    setShowAdd(false);
+  };
+
+  const deleteReward = async (id: string) => {
+    if (confirm('هل أنت متأكد من حذف هذه الجائزة الشهرية؟')) {
+      await deleteDoc(doc(db, 'monthlyRewards', id));
+    }
+  };
+
+  return (
+    <section className="bg-summer-card p-6 rounded-3xl border border-white/20 shadow-xl space-y-4">
+      <div className="flex justify-between items-center">
+        <h3 className="text-sm font-bold text-summer-text/40 uppercase tracking-widest px-1">جوائز الشهر ({currentMonth}) 🎁</h3>
+        <button 
+          onClick={() => setShowAdd(!showAdd)}
+          className="bg-summer-accent text-white p-2 rounded-xl shadow-lg hover:scale-105 transition-all"
+        >
+          {showAdd ? <X size={18} /> : <Plus size={18} />}
+        </button>
+      </div>
+
+      {showAdd && (
+        <div className="bg-white/10 p-4 rounded-2xl space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
+          <input 
+            placeholder="اسم الجائزة (مثلاً: آيسكريم عملاق 🍦)"
+            className="w-full bg-white/30 border border-white/30 rounded-xl px-4 py-3 text-xs text-summer-text outline-none focus:border-summer-accent placeholder:text-summer-text/30"
+            value={newTitle}
+            onChange={(e) => setNewTitle(e.target.value)}
+          />
+          <div className="flex gap-2">
+            <input 
+              type="number"
+              placeholder="التكلفة"
+              className="flex-1 bg-white/30 border border-white/30 rounded-xl px-4 py-3 text-xs text-summer-text outline-none focus:border-summer-accent"
+              value={newCost}
+              onChange={(e) => setNewCost(Number(e.target.value))}
+            />
+            <button 
+              onClick={addReward}
+              className="bg-summer-accent text-white px-6 rounded-xl text-xs font-black"
+            >
+              إضافة
+            </button>
+          </div>
+          <div className="pt-2">
+            <SuggestionsLibrary onSelectMonthly={(reward) => {
+              setNewTitle(reward.title);
+              setNewCost(reward.cost);
+            }} />
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-3">
+        {rewards.map(reward => (
+          <div key={reward.id} className="flex justify-between items-center bg-white/20 p-4 rounded-2xl border border-white/10 group">
+            <div>
+              <p className="text-sm font-black text-summer-text">{reward.title}</p>
+              <p className="text-[10px] font-bold text-summer-accent">{reward.cost} نقطة</p>
+            </div>
+            <button 
+              onClick={() => deleteReward(reward.id)}
+              className="w-8 h-8 flex items-center justify-center text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        ))}
+        {rewards.length === 0 && !showAdd && (
+          <p className="text-center text-xs text-summer-text/30 py-4 italic font-bold">لا توجد جوائز مضافة لهذا الشهر</p>
+        )}
+      </div>
+    </section>
+  );
+};
+
+const MonthlyRewardsShop = ({ profile }: { profile: UserProfile }) => {
+  const [rewards, setRewards] = useState<MonthlyReward[]>([]);
+  const currentMonth = new Date().toISOString().slice(0, 7);
+
+  useEffect(() => {
+    const q = query(collection(db, 'monthlyRewards'), where('month', '==', currentMonth));
+    return onSnapshot(q, (snapshot) => {
+      setRewards(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as MonthlyReward)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'monthlyRewards');
+    });
+  }, [currentMonth]);
+
+  const claimReward = async (reward: MonthlyReward) => {
+    if (profile.role !== 'child') return;
+    if (profile.points < reward.cost) {
+      alert('نقاطك غير كافية لهذه الجائزة! استمر في العمل الرائع 🌟');
+      return;
+    }
+
+    if (reward.claimedBy?.includes(profile.uid)) {
+      alert('لقد حصلت على هذه الجائزة بالفعل لهذا الشهر! 🎉');
+      return;
+    }
+
+    if (!confirm(`هل تريد استبدال ${reward.cost} نقطة بـ "${reward.title}"؟`)) return;
+
+    try {
+      const childDoc = doc(db, 'users', profile.uid);
+      const rewardDoc = doc(db, 'monthlyRewards', reward.id);
+
+      await updateDoc(childDoc, {
+        points: profile.points - reward.cost
+      });
+
+      await updateDoc(rewardDoc, {
+        claimedBy: arrayUnion(profile.uid)
+      });
+
+      await addDoc(collection(db, 'transactions'), {
+        userId: profile.uid,
+        userName: profile.displayName,
+        type: 'redeem',
+        points: reward.cost,
+        currencyAmount: 0,
+        status: 'approved',
+        requestedAt: serverTimestamp(),
+        processedAt: serverTimestamp(),
+        note: `جائزة شهرية: ${reward.title}`
+      });
+
+      alert('يا بطل! تم خصم النقاط، استلم جائزتك من أهلك الآن! 🎁✨');
+    } catch (err) {
+      console.error(err);
+      alert('عذراً، حدث خطأ أثناء المطالبة بالجائزة.');
+    }
+  };
+
+  if (rewards.length === 0) return null;
+
+  return (
+    <section className="space-y-4">
+      <div className="flex justify-between items-center px-1">
+        <h3 className="text-sm font-black text-summer-text/40 uppercase tracking-widest">جوائز الشهر الخاصة 🌟</h3>
+        <div className="bg-white/20 px-3 py-1 rounded-full text-[10px] font-black text-summer-accent uppercase tracking-widest">
+          {currentMonth}
+        </div>
+      </div>
+      
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {rewards.map(reward => {
+          const isClaimed = reward.claimedBy?.includes(profile.uid);
+          const canAfford = profile.points >= reward.cost;
+
+          return (
+            <motion.div 
+              key={reward.id}
+              whileHover={{ y: -5 }}
+              className={cn(
+                "p-5 rounded-3xl border transition-all relative overflow-hidden group",
+                isClaimed ? "bg-emerald-500/10 border-emerald-500/30" : "bg-summer-card border-white/20 shadow-xl"
+              )}
+            >
+              <div className="relative z-10 flex justify-between items-start">
+                <div className="space-y-1">
+                  <p className="text-lg font-black text-summer-text">{reward.title}</p>
+                  <div className="flex items-center gap-2">
+                    <span className={cn(
+                      "px-2 py-1 rounded-lg text-[10px] font-black",
+                      canAfford ? "bg-summer-accent/10 text-summer-accent" : "bg-red-500/10 text-red-500"
+                    )}>
+                      {reward.cost} نقطة
+                    </span>
+                    {isClaimed && (
+                      <span className="bg-emerald-500 text-white px-2 py-1 rounded-lg text-[9px] font-black flex items-center gap-1">
+                        <CheckCircle2 size={10} /> تم الحصول عليها
+                      </span>
+                    )}
+                  </div>
+                </div>
+                
+                {!isClaimed && (
+                  <button 
+                    onClick={() => claimReward(reward)}
+                    disabled={!canAfford}
+                    className={cn(
+                      "p-3 rounded-2xl shadow-lg transition-all active:scale-95",
+                      canAfford ? "summer-gradient text-white hover:scale-110" : "bg-white/20 text-summer-text/20 cursor-not-allowed"
+                    )}
+                  >
+                    <ShoppingBag size={20} />
+                  </button>
+                )}
+              </div>
+              
+              {!isClaimed && !canAfford && (
+                <div className="mt-4 h-1.5 w-full bg-white/20 rounded-full overflow-hidden">
+                   <motion.div 
+                     initial={{ width: 0 }}
+                     animate={{ width: `${(profile.points / reward.cost) * 100}%` }}
+                     className="h-full bg-summer-accent/40" 
+                   />
+                </div>
+              )}
+            </motion.div>
+          );
+        })}
+      </div>
+    </section>
+  );
+};
 
 const Dashboard = ({ profile }: { profile: UserProfile }) => {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -302,27 +912,16 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
         {/* Family Mood Dashboard */}
         <FamilyPulse profile={profile} />
 
+        {/* Big Goal Section */}
+        {!isParent ? (
+          <BigGoalCard profile={profile} />
+        ) : (
+          <FamilyBigGoals />
+        )}
+
         {/* User Stats & Level */}
         {!isParent && (
-          <motion.div 
-            whileHover={{ scale: 1.02 }}
-            className="bg-summer-card p-6 rounded-3xl border border-white/20 shadow-2xl flex items-center justify-between overflow-hidden relative"
-          >
-            <div className="absolute top-0 right-0 w-32 h-32 summer-gradient opacity-10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
-            <div>
-              <p className="text-summer-text/40 text-[10px] uppercase tracking-widest font-bold mb-1">المستوى الحالي</p>
-              <div className="flex items-center gap-3">
-                <div className={cn("w-8 h-8 rounded-full flex items-center justify-center bg-white/20", level.color)}>
-                  <level.icon size={18} />
-                </div>
-                <h4 className={cn("text-xl font-black", level.color)}>{level.name}</h4>
-              </div>
-            </div>
-            <div className="text-left">
-              <p className="text-summer-text/40 text-[10px] uppercase tracking-widest font-bold mb-1">إجمالي النقاط</p>
-              <p className="text-summer-text text-2xl font-black">{profile.totalPointsEarned || 0}</p>
-            </div>
-          </motion.div>
+          <SmartAchievement totalPoints={profile.totalPointsEarned || 0} />
         )}
 
         {/* Wallet Section */}
@@ -353,6 +952,13 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
               </Link>
             </div>
           </section>
+        )}
+
+        {/* Monthly Rewards Section */}
+        {!isParent ? (
+          <MonthlyRewardsShop profile={profile} />
+        ) : (
+          <MonthlyRewardsManager />
         )}
 
         {/* Tasks Preview */}
@@ -466,6 +1072,8 @@ const TaskComments = ({ taskId, profile }: { taskId: string, profile: UserProfil
     );
     return onSnapshot(q, (snapshot) => {
       setComments(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as TaskComment)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, `tasks/${taskId}/comments`);
     });
   }, [taskId]);
 
@@ -744,6 +1352,13 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
                   </select>
                 </div>
                 
+                <div className="pt-2">
+                  <SuggestionsLibrary onSelectTask={(task) => {
+                    setNewTitle(task.title);
+                    setNewPoints(task.points);
+                  }} />
+                </div>
+
                 <button 
                   onClick={addTask}
                   className="w-full summer-gradient text-white py-4 rounded-2xl font-black text-lg hover:shadow-lg transition-all shadow-lg active:scale-95"
@@ -1490,6 +2105,14 @@ const ShopPage = ({ profile }: { profile: UserProfile }) => {
             <ShoppingBag size={24} />
           </div>
         </div>
+
+        {/* --- Monthly Rewards Section --- */}
+        {!isParent ? (
+          <MonthlyRewardsShop profile={profile} />
+        ) : (
+          <MonthlyRewardsManager />
+        )}
+        {/* ------------------------------ */}
 
         {isParent && (
           <button 

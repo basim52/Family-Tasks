@@ -78,3 +78,22 @@ export interface Prize {
 export interface AppConfig {
   pointExchangeRate: number; // 1 point = X SAR
 }
+
+export interface BigGoal {
+  id: string;
+  title: string;
+  targetPoints: number;
+  userId: string;
+  status: 'active' | 'completed';
+  createdAt: any;
+}
+
+export interface MonthlyReward {
+  id: string;
+  title: string;
+  cost: number;
+  month: string;
+  description?: string;
+  claimedBy?: string[];
+  createdAt: any;
+}

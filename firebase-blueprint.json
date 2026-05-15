@@ -94,6 +94,33 @@
         "pointExchangeRate": { "type": "number" },
         "familyLevels": { "type": "object" }
       }
+    },
+    "BigGoal": {
+      "title": "Big Goal",
+      "description": "A long-term target for points",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "targetPoints": { "type": "number" },
+        "userId": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "completed"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "targetPoints", "userId", "status"]
+    },
+    "MonthlyReward": {
+      "title": "Monthly Reward",
+      "description": "Special monthly prizes",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "cost": { "type": "number" },
+        "month": { "type": "string", "description": "e.g., 2026-05" },
+        "description": { "type": "string" },
+        "claimedBy": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "cost", "month"]
     }
   },
   "firestore": {
@@ -124,6 +151,14 @@
     "config": {
       "schema": "Config",
       "description": "Global settings"
+    },
+    "bigGoals": {
+      "schema": "BigGoal",
+      "description": "Long-term goals for children"
+    },
+    "monthlyRewards": {
+      "schema": "MonthlyReward",
+      "description": "Monthly special prizes"
     }
   }
 }
