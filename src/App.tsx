@@ -200,8 +200,9 @@ const getLevel = (totalPoints: number = 0) => {
 
 // --- Components ---
 const NotificationCentre = ({ profile }: { profile: UserProfile }) => {
-  const [notifications, setNotifications] = useState<any[]>([]);
+  const [notifications, setNotifications] = useState<any[]>([]); // Keep any if dynamic, but we use properties
   const [isOpen, setIsOpen] = useState(false);
+  const isFirstLoad = useRef(true);
 
   useEffect(() => {
     const q = query(
@@ -211,7 +212,25 @@ const NotificationCentre = ({ profile }: { profile: UserProfile }) => {
       limit(10)
     );
     return onSnapshot(q, (snapshot) => {
-      setNotifications(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      const newNotifs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+      
+      // Notify only on new additions post-load
+      if (!isFirstLoad.current && newNotifs.length > 0) {
+        const lastNotif = newNotifs[0];
+        // Check if it's truly a new notification (created within last 5 seconds)
+        const isRecent = lastNotif.createdAt && (Date.now() - lastNotif.createdAt.toMillis() < 5000);
+        
+        if (isRecent && Notification.permission === 'granted') {
+          // Use window.Notification to avoid collisions if any
+          new window.Notification(lastNotif.title, {
+            body: lastNotif.body,
+            icon: '/pwa-192x192.png'
+          });
+        }
+      }
+      
+      setNotifications(newNotifs);
+      isFirstLoad.current = false;
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'notifications');
     });
@@ -2207,6 +2226,19 @@ const SettingsPage = ({ profile }: { profile: UserProfile }) => {
     alert('تم حفظ الإعدادات بنجاح. قد تحتاج لإعادة تحميل الصفحة لتطبيق بعض التغييرات الذكية.');
   };
 
+  const requestNotifications = async () => {
+    if (!('Notification' in window)) {
+      alert('متصفحك لا يدعم الإشعارات.');
+      return;
+    }
+    const permission = await Notification.requestPermission();
+    if (permission === 'granted') {
+      alert('تم تفعيل الإشعارات بنجاح! ستصلك تنبيهات المهام والرسائل حتى لو كان التطبيق في الخلفية.');
+    } else {
+      alert('تحتاج للموافقة على الإذن من إعدادات المتصفح لتفعيل الإشعارات.');
+    }
+  };
+
   if (profile.role !== 'parent') return <Navigate to="/" />;
 
   return (
@@ -2240,6 +2272,20 @@ const SettingsPage = ({ profile }: { profile: UserProfile }) => {
             className="w-full summer-gradient text-white py-4 rounded-2xl font-black hover:shadow-lg transition-all disabled:opacity-50 shadow-lg"
           >
             {saving ? 'جاري الحفظ...' : 'حفظ الإعدادات'}
+          </button>
+        </section>
+
+        <section className="bg-summer-card p-6 rounded-3xl border border-white/20 space-y-6 shadow-xl">
+          <h3 className="font-bold text-summer-text flex items-center gap-2">
+            <Bell size={18} className="text-summer-accent" />
+            إشعارات الجوال
+          </h3>
+          <p className="text-xs text-summer-text/50">تفعيل الإشعارات المنبثقة لتصلك التنبيهات حتى خارج التطبيق</p>
+          <button 
+            onClick={requestNotifications}
+            className="w-full bg-white/20 text-summer-text py-4 rounded-2xl font-black border border-white/20 hover:bg-white/30 transition-all"
+          >
+            تفعيل إشعارات النظام
           </button>
         </section>
 
@@ -2409,6 +2455,16 @@ const ShopPage = ({ profile }: { profile: UserProfile }) => {
 
 export default function App() {
   const { user, profile, loading } = useAuth();
+
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').then(reg => {
+        console.log('SW Registered:', reg.scope);
+      }).catch(err => {
+        console.error('SW Registration Failed:', err);
+      });
+    }
+  }, []);
 
   if (loading) return (
     <div className="h-screen bg-summer-bg flex items-center justify-center p-8">
