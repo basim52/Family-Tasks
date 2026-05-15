@@ -35,7 +35,7 @@ import {
 } from 'lucide-react';
 import { auth, db, storage } from './lib/firebase';
 import { useAuth } from './hooks/useAuth';
-import { Login } from './pages/Login';
+import { Landing } from './pages/Landing';
 import { WalletCard } from './components/wallet/WalletCard';
 import { TaskImageGenerator } from './components/TaskImageGenerator';
 import { Play, Pause, Loader2 } from 'lucide-react';
@@ -1876,7 +1876,7 @@ export default function App() {
     </div>
   );
 
-  if (!user || !profile) return <Login />;
+  if (!user || !profile) return <Landing />;
 
   return (
     <Router>
