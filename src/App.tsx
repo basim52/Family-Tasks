@@ -567,12 +567,14 @@ const AIAssistant = ({ profile }: { profile: UserProfile }) => {
     
     const isSmartMode = localStorage.getItem('family_smart_mode') !== 'false';
     if (!isSmartMode) {
+      setLoading(true);
       setTimeout(() => {
         setMessages(prev => [...prev, { 
           role: 'assistant', 
           content: 'أهلاً بك! أنا أعمل حالياً بوضع التوفير اليدوي. تذكر دائماً أن الصبر والتعاون هما أساس نجاح العائلة السعيدة. كيف يمكنني مساعدتك اليوم؟' 
         }]);
-      }, 500);
+        setLoading(false);
+      }, 800);
       return;
     }
 
@@ -583,17 +585,21 @@ const AIAssistant = ({ profile }: { profile: UserProfile }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           prompt: userMsg,
-          context: `User Role: ${profile.role}, Points: ${profile.points}` 
+          context: `User Role: ${profile.role}, Points: ${profile.points}, Level: ${getLevel(profile.totalPointsEarned).name}` 
         }),
       });
+      
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'حدث خطأ غير متوقع');
-      setMessages(prev => [...prev, { role: 'assistant', content: data.text }]);
+      if (!res.ok) {
+        throw new Error(data.error || `خطأ من الخادم: ${res.status}`);
+      }
+      
+      setMessages(prev => [...prev, { role: 'assistant', content: data.text || 'لم أستطع معالجة طلبك حالياً.' }]);
     } catch (err: any) {
-      console.error(err);
+      console.error("Assistant error:", err);
       let fallbackMsg = 'عذراً، واجهت مشكلة في الاتصال بذكائي الاصطناعي. إليك نصيحة سريعة: الصبر والتحفيز هما مفتاح النجاح مع الأطفال اليوم!';
       if (err.message?.includes('الحد الأقصى') || err.message?.includes('429')) {
-        fallbackMsg = 'أهلاً بك! نظراً للضغط العالي حالياً، أنا أعمل بوضع التوفير الذكي. نصيحتي لك اليوم: اجعل هدفك دائماً هو بناء ذكريات صيفية لا تُنسى مع أطفالك عبر المشاركة في مهامهم البسيطة والممتعة.';
+        fallbackMsg = 'أهلاً بك! نظراً للضغط العالي على النظام حالياً، أنا أعمل بوضع التوفير الذكي. نصيحتي لك اليوم: اجعل هدفك دائماً هو بناء ذكريات صيفية لا تُنسى عبر المشاركة العائلية.';
       }
       setMessages(prev => [...prev, { role: 'assistant', content: fallbackMsg }]);
     } finally {
