@@ -101,6 +101,14 @@ service cloud.firestore {
         && data.createdAt == request.time;
     }
 
+    function isValidCall(data) {
+      return data.keys().hasAll(['hostId', 'type', 'status', 'createdAt'])
+        && data.hostId == request.auth.uid
+        && data.type in ['video', 'voice']
+        && data.status in ['active', 'ended']
+        && data.createdAt == request.time;
+    }
+
     // Collection Rules
 
     match /users/{userId} {
@@ -174,6 +182,15 @@ service cloud.firestore {
       allow create: if isParent() && isValidMonthlyReward(request.resource.data);
       allow update: if isParent() || (isChild() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['claimedBy']));
       allow delete: if isParent();
+    }
+
+    match /calls/{callId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidCall(request.resource.data);
+      allow update: if isSignedIn() && (
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['participants', 'status'])
+      );
+      allow delete: if isSignedIn() && resource.data.hostId == request.auth.uid;
     }
   }
 }

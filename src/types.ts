@@ -99,3 +99,14 @@ export interface MonthlyReward {
   claimedBy?: string[];
   createdAt: any;
 }
+
+export interface Call {
+  id: string;
+  hostId: string;
+  hostName: string;
+  hostPhoto: string;
+  type: 'video' | 'voice';
+  status: 'active' | 'ended';
+  participants: string[];
+  createdAt: any;
+}

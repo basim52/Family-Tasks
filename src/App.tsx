@@ -55,7 +55,7 @@ import {
   getDoc
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { Task, Message, UserProfile, Prize, TaskComment, BigGoal, MonthlyReward } from './types';
+import { Task, Message, UserProfile, Prize, TaskComment, BigGoal, MonthlyReward, Call } from './types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -1626,9 +1626,26 @@ const ChatPage = ({ profile }: { profile: UserProfile }) => {
   const [isRecording, setIsRecording] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
+  const [playingAudio, setPlayingAudio] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [activeCalls, setActiveCalls] = useState<Call[]>([]);
+  const [currentCall, setCurrentCall] = useState<Call | null>(null);
+
+  useEffect(() => {
+    const q = query(collection(db, 'calls'), where('status', '==', 'active'));
+    return onSnapshot(q, (snapshot) => {
+      const calls = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Call));
+      setActiveCalls(calls);
+      
+      // If we are in a call that just ended, close UI
+      if (currentCall && !calls.find(c => c.id === currentCall.id)) {
+        setShowCall(false);
+        setCurrentCall(null);
+      }
+    });
+  }, [currentCall]);
 
   useEffect(() => {
     const q = query(collection(db, 'messages'), orderBy('createdAt', 'desc'), limit(50));
@@ -1669,15 +1686,26 @@ const ChatPage = ({ profile }: { profile: UserProfile }) => {
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      
+      const mimeType = ['audio/webm', 'audio/mp4', 'audio/ogg', 'audio/wav'].find(
+        type => MediaRecorder.isTypeSupported(type)
+      ) || '';
+      
+      if (!mimeType) {
+        alert("متصفحك لا يدعم تسجيل الصوت.");
+        return;
+      }
+
+      const recorder = new MediaRecorder(stream, { mimeType });
       const chunks: Blob[] = [];
       
       recorder.ondataavailable = (e) => chunks.push(e.data);
       recorder.onstop = async () => {
         setIsUploading(true);
         try {
-          const audioBlob = new Blob(chunks, { type: 'audio/webm' });
-          const storageRef = ref(storage, `audio/${profile.uid}_${Date.now()}.webm`);
+          const audioBlob = new Blob(chunks, { type: mimeType });
+          const fileExt = mimeType.split('/')[1].split(';')[0];
+          const storageRef = ref(storage, `audio/${profile.uid}_${Date.now()}.${fileExt}`);
           await uploadBytes(storageRef, audioBlob);
           const downloadURL = await getDownloadURL(storageRef);
           
@@ -1690,6 +1718,7 @@ const ChatPage = ({ profile }: { profile: UserProfile }) => {
           });
         } catch (err) {
           console.error("Error uploading audio:", err);
+          alert("فشل في إرسال التسجيل الصوتي.");
         } finally {
           setIsUploading(false);
         }
@@ -1701,6 +1730,7 @@ const ChatPage = ({ profile }: { profile: UserProfile }) => {
       setIsRecording(true);
     } catch (err) {
       console.error("Error starting recording:", err);
+      alert("يرجى السماح بالوصول للميكروفون لتسجيل الصوت.");
     }
   };
 
@@ -1749,6 +1779,58 @@ const ChatPage = ({ profile }: { profile: UserProfile }) => {
     setNewMsg('');
   };
 
+  const initCall = async (type: 'video' | 'voice') => {
+    const callData = {
+      hostId: profile.uid,
+      hostName: profile.displayName,
+      hostPhoto: profile.photoURL || '',
+      type,
+      status: 'active',
+      participants: [profile.uid],
+      createdAt: serverTimestamp()
+    };
+    
+    try {
+      const docRef = await addDoc(collection(db, 'calls'), callData);
+      setCurrentCall({ id: docRef.id, ...callData, createdAt: new Date() } as Call);
+      setCallType(type);
+      setShowCall(true);
+    } catch (err) {
+      console.error("Error starting call:", err);
+      handleFirestoreError(err, OperationType.CREATE, 'calls');
+    }
+  };
+
+  const joinCall = async (call: Call) => {
+    try {
+      await updateDoc(doc(db, 'calls', call.id), {
+        participants: arrayUnion(profile.uid)
+      });
+      setCurrentCall(call);
+      setCallType(call.type);
+      setShowCall(true);
+    } catch (err) {
+      console.error("Error joining call:", err);
+    }
+  };
+
+  const endCall = async () => {
+    if (currentCall) {
+      try {
+        if (currentCall.hostId === profile.uid) {
+          await updateDoc(doc(db, 'calls', currentCall.id), { status: 'ended' });
+        } else {
+          // just leave
+          // simplified: just end for self
+        }
+      } catch (err) {
+        console.error("Error ending call:", err);
+      }
+    }
+    setShowCall(false);
+    setCurrentCall(null);
+  };
+
   return (
     <div className="h-screen flex flex-col pb-24 md:pb-0 bg-summer-bg">
       <Header 
@@ -1757,13 +1839,13 @@ const ChatPage = ({ profile }: { profile: UserProfile }) => {
         actions={
           <div className="flex gap-2">
             <button 
-              onClick={() => { setCallType('voice'); setShowCall(true); }}
+              onClick={() => initCall('voice')}
               className="w-10 h-10 bg-emerald-600/20 text-emerald-500 rounded-xl flex items-center justify-center hover:bg-emerald-600 hover:text-white transition-all active:scale-95 shadow-lg border border-emerald-500/20"
             >
               <Phone size={18} />
             </button>
             <button 
-              onClick={() => { setCallType('video'); setShowCall(true); }}
+              onClick={() => initCall('video')}
               className="w-10 h-10 bg-summer-primary/20 text-summer-primary rounded-xl flex items-center justify-center hover:bg-summer-primary hover:text-white transition-all active:scale-95 shadow-lg border border-summer-primary/20"
             >
               <Video size={18} />
@@ -1771,6 +1853,37 @@ const ChatPage = ({ profile }: { profile: UserProfile }) => {
           </div>
         }
       />
+
+      {/* Active Calls Banner */}
+      <div className="px-6 pt-4 space-y-3">
+        {activeCalls.filter(c => c.hostId !== profile.uid && !c.participants.includes(profile.uid)).map(call => (
+          <motion.div 
+            key={call.id}
+            initial={{ y: -20, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            className="bg-summer-accent text-white p-4 rounded-3xl flex items-center justify-between shadow-2xl shadow-summer-accent/20 border border-white/20"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full border-2 border-white/40 overflow-hidden">
+                <img src={call.hostPhoto} alt="" className="w-full h-full object-cover" />
+              </div>
+              <div>
+                <p className="text-xs font-black leading-none mb-1">{call.hostName} بدأ اتصالاً {call.type === 'video' ? 'مرئياً' : 'صوتياً'}</p>
+                <div className="flex items-center gap-2">
+                   <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
+                   <p className="text-[10px] opacity-80">نشط الآن...</p>
+                </div>
+              </div>
+            </div>
+            <button 
+              onClick={() => joinCall(call)}
+              className="bg-white text-summer-accent px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:scale-105 active:scale-95 transition-all"
+            >
+              انضمام
+            </button>
+          </motion.div>
+        ))}
+      </div>
 
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
         {messages.map((msg) => {
@@ -1799,7 +1912,13 @@ const ChatPage = ({ profile }: { profile: UserProfile }) => {
                       onClick={(e) => {
                         const audio = e.currentTarget.parentElement?.querySelector('audio');
                         if (audio) {
-                          audio.paused ? audio.play() : audio.pause();
+                          if (audio.paused) {
+                            audio.play();
+                            setPlayingAudio(msg.id);
+                          } else {
+                            audio.pause();
+                            setPlayingAudio(null);
+                          }
                         }
                       }}
                       className={cn(
@@ -1807,13 +1926,27 @@ const ChatPage = ({ profile }: { profile: UserProfile }) => {
                         isOwn ? "bg-white/20 text-white hover:bg-white/30" : "bg-summer-bg/20 text-summer-text hover:bg-summer-bg/30"
                       )}
                     >
-                      <Play size={16} />
+                      {playingAudio === msg.id ? <Pause size={16} /> : <Play size={16} />}
                     </button>
                     <div className={cn(
-                      "flex-1 h-1 rounded-full",
+                      "flex-1 h-1 rounded-full relative",
                       isOwn ? "bg-white/10" : "bg-summer-text/5"
-                    )} />
-                    <audio src={msg.content} className="hidden" />
+                    )}>
+                      {playingAudio === msg.id && (
+                        <motion.div 
+                          initial={{ width: 0 }}
+                          animate={{ width: '100%' }}
+                          transition={{ duration: 5, ease: "linear" }}
+                          className={cn("absolute inset-0 h-full rounded-full", isOwn ? "bg-white/40" : "bg-summer-accent/40")}
+                        />
+                      )}
+                    </div>
+                    <audio 
+                      src={msg.content} 
+                      className="hidden" 
+                      onEnded={() => setPlayingAudio(null)}
+                      onPause={() => setPlayingAudio(null)}
+                    />
                     <span className="text-[10px] opacity-60">صوت</span>
                   </div>
                 )}
@@ -1914,10 +2047,10 @@ const ChatPage = ({ profile }: { profile: UserProfile }) => {
 
               <div className="p-12 flex justify-center gap-8 items-center bg-white/40 backdrop-blur-md border-t border-white/20">
                 <button className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center text-summer-text border border-white/20">
-                  {isRecording ? <Mic size={24} className="text-red-500" /> : <Mic size={24} />}
+                  <Mic size={24} />
                 </button>
                 <button 
-                  onClick={() => setShowCall(false)}
+                  onClick={endCall}
                   className="w-20 h-20 bg-red-600 rounded-full flex items-center justify-center text-white shadow-2xl shadow-red-600/50 hover:scale-110 active:scale-90 transition-all"
                 >
                   <LogOut size={32} className="rotate-[135deg]" />
@@ -1928,8 +2061,18 @@ const ChatPage = ({ profile }: { profile: UserProfile }) => {
               </div>
 
               <div className="p-8 text-center bg-white/10 border-t border-white/10">
+                <div className="flex -space-x-4 space-x-reverse justify-center mb-4">
+                  {currentCall?.participants.map(p => (
+                    <div key={p} className="w-12 h-12 rounded-full border-4 border-summer-bg bg-summer-primary/40 flex items-center justify-center text-white font-bold">
+                       {p.charAt(0)}
+                    </div>
+                  ))}
+                  <div className="w-12 h-12 rounded-full border-4 border-summer-bg bg-summer-accent flex items-center justify-center text-white">
+                    <Plus size={16} />
+                  </div>
+                </div>
                 <p className="text-[10px] text-summer-accent font-bold uppercase tracking-[0.2em]">
-                  Real-time WebRTC Signaling Implementation Required for Multi-party
+                  {currentCall?.participants.length} أفراد في الاتصال حالياً
                 </p>
               </div>
             </motion.div>

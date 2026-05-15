@@ -123,6 +123,21 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["title", "cost", "month"]
+    },
+    "Call": {
+      "title": "Call",
+      "description": "Family video/voice call",
+      "type": "object",
+      "properties": {
+        "hostId": { "type": "string" },
+        "hostName": { "type": "string" },
+        "hostPhoto": { "type": "string" },
+        "type": { "type": "string", "enum": ["video", "voice"] },
+        "status": { "type": "string", "enum": ["active", "ended"] },
+        "participants": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["hostId", "type", "status", "createdAt"]
     }
   },
   "firestore": {
@@ -161,6 +176,10 @@
     "monthlyRewards": {
       "schema": "MonthlyReward",
       "description": "Monthly special prizes"
+    },
+    "calls": {
+      "schema": "Call",
+      "description": "Family calls"
     }
   }
 }
