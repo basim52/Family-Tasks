@@ -33,6 +33,18 @@ export function useAuth() {
           await setDoc(docRef, newProfile);
           setProfile(newProfile);
         } else {
+          const currentProfile = docSnap.data() as UserProfile;
+          const isAdmin = authUser.email === 'basim5252@gmail.com' || authUser.email === 'Hayatalzaki@gmail.com';
+          
+          // Auto-promote if admin but role is still child
+          if (isAdmin && currentProfile.role !== 'parent') {
+            const isMother = authUser.email === 'Hayatalzaki@gmail.com';
+            await setDoc(docRef, { 
+              role: 'parent',
+              displayName: !currentProfile.displayName || currentProfile.displayName === 'User' ? (isMother ? 'الأم' : 'مسؤول النظام') : currentProfile.displayName
+            }, { merge: true });
+          }
+
           // Listen for profile changes
           onSnapshot(docRef, (snapshot) => {
             setProfile(snapshot.data() as UserProfile);
