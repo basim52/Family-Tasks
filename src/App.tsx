@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, Navigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
+import { toPng } from 'html-to-image';
 import { 
   Home, 
   CheckSquare, 
@@ -34,7 +35,9 @@ import {
   Meh,
   Plus,
   Zap,
-  Sparkles
+  Sparkles,
+  Share2,
+  Download
 } from 'lucide-react';
 import { auth, db, storage } from './lib/firebase';
 import { useAuth } from './hooks/useAuth';
@@ -203,6 +206,65 @@ const getLevel = (totalPoints: number = 0) => {
 };
 
 // --- Components ---
+const NotificationsFeed = ({ profile, limit: limitCount = 5 }: { profile: UserProfile, limit?: number }) => {
+  const [notifications, setNotifications] = useState<any[]>([]);
+
+  useEffect(() => {
+    const q = query(
+      collection(db, 'notifications'), 
+      where('userId', '==', profile.uid),
+      orderBy('createdAt', 'desc'),
+      limit(limitCount)
+    );
+    return onSnapshot(q, (snapshot) => {
+      setNotifications(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'notifications');
+    });
+  }, [profile.uid, limitCount]);
+
+  if (notifications.length === 0) {
+    return (
+      <div className="text-center py-4">
+        <p className="text-[10px] text-summer-text/20 font-bold italic">لا توجد تنبيهات جديدة حالياً.. استمتع بيومك! ✨</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {notifications.map((n, i) => (
+        <motion.div 
+          key={n.id}
+          initial={{ opacity: 0, x: -10 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ delay: i * 0.1 }}
+          className={cn(
+            "flex items-start gap-4 p-4 rounded-3xl border transition-all",
+            n.read ? "bg-white/5 border-white/5 opacity-60" : "bg-white/20 border-white/20"
+          )}
+        >
+          <div className={cn(
+            "w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 shadow-sm",
+            n.type === 'success' ? "bg-emerald-500/20 text-emerald-600" : 
+            n.type === 'warning' ? "bg-red-500/20 text-red-600" :
+            "bg-summer-accent/20 text-summer-accent"
+          )}>
+            <Bell size={20} />
+          </div>
+          <div>
+            <div className="flex justify-between items-start mb-1">
+               <p className="text-xs font-black text-summer-text">{n.title}</p>
+               <span className="text-[8px] text-summer-text/20 font-bold whitespace-nowrap">{n.createdAt?.toDate?.()?.toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })}</span>
+            </div>
+            <p className="text-[10px] text-summer-text/50 leading-relaxed font-bold">{n.body}</p>
+          </div>
+        </motion.div>
+      ))}
+    </div>
+  );
+};
+
 const NotificationCentre = ({ profile }: { profile: UserProfile }) => {
   const [notifications, setNotifications] = useState<any[]>([]); // Keep any if dynamic, but we use properties
   const [isOpen, setIsOpen] = useState(false);
@@ -243,7 +305,7 @@ const NotificationCentre = ({ profile }: { profile: UserProfile }) => {
   const unreadCount = notifications.filter(n => !n.read).length;
 
   return (
-    <div className="relative">
+    <>
       <button 
         onClick={() => setIsOpen(!isOpen)}
         className="p-3 bg-white/20 rounded-2xl hover:bg-white/30 transition-colors relative group"
@@ -278,26 +340,61 @@ const NotificationCentre = ({ profile }: { profile: UserProfile }) => {
 
       <AnimatePresence>
         {isOpen && (
-          <motion.div 
-            initial={{ opacity: 0, y: 10, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 10, scale: 0.95 }}
-            className="absolute top-16 left-0 w-80 bg-summer-card border border-white/40 rounded-3xl shadow-2xl p-4 z-[100] max-h-96 overflow-y-auto"
-          >
-            <h4 className="font-bold text-summer-text mb-4 px-2">الإشعارات الأخيرة</h4>
-            <div className="space-y-3">
-              {notifications.length === 0 && <p className="text-xs text-summer-text/40 text-center py-4">لا توجد إشعارات حالياً</p>}
-              {notifications.map(n => (
-                <div key={n.id} className={cn("p-3 rounded-2xl border border-white/10", n.read ? "bg-white/10 opacity-50" : "bg-white/20")}>
-                  <p className="text-xs font-bold text-summer-text mb-1">{n.title}</p>
-                  <p className="text-[10px] text-summer-text/60">{n.body}</p>
-                </div>
-              ))}
-            </div>
-          </motion.div>
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm" onClick={() => setIsOpen(false)}>
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              onClick={e => e.stopPropagation()}
+              className="w-full max-w-sm bg-summer-card border border-white/40 rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.3)] p-6 overflow-hidden flex flex-col max-h-[80vh] relative"
+            >
+              <div className="flex justify-between items-center mb-6">
+                <h4 className="font-black text-summer-text text-lg pr-2">تنبيهات العائلة 🔔</h4>
+                <button onClick={() => setIsOpen(false)} className="text-summer-text/40 hover:text-summer-text p-1">
+                  <X size={20} />
+                </button>
+              </div>
+              
+              <div className="space-y-3 overflow-y-auto pr-1 flex-1">
+                {notifications.length === 0 && (
+                  <div className="text-center py-12">
+                    <BellRing size={48} className="mx-auto text-summer-text/10 mb-4" />
+                    <p className="text-xs text-summer-text/40 font-bold">لا توجد تنبيهات حالياً</p>
+                  </div>
+                )}
+                {notifications.map(n => (
+                  <div 
+                    key={n.id} 
+                    className={cn(
+                      "p-5 rounded-3xl border transition-all", 
+                      n.read ? "bg-white/5 opacity-50 border-white/5" : "bg-white/20 border-white/20 shadow-md translate-x-[-2px]"
+                    )}
+                  >
+                    <div className="flex justify-between items-start gap-2 mb-2">
+                       <p className="text-sm font-black text-summer-text leading-tight">{n.title}</p>
+                       <span className="text-[8px] text-summer-text/20 font-bold whitespace-nowrap">{n.createdAt?.toDate?.()?.toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })}</span>
+                    </div>
+                    <p className="text-[11px] text-summer-text/60 leading-relaxed font-medium">{n.body}</p>
+                  </div>
+                ))}
+              </div>
+
+              {notifications.length > 0 && (
+                <button 
+                  onClick={async () => {
+                     // In a real app we'd mark all as read here
+                     setIsOpen(false);
+                  }}
+                  className="mt-6 w-full py-4 text-xs font-black text-summer-accent bg-summer-accent/5 rounded-2xl hover:bg-summer-accent/10 transition-all uppercase tracking-widest"
+                >
+                  إغلاق التنبيهات
+                </button>
+              )}
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
-    </div>
+    </>
   );
 };
 
@@ -912,19 +1009,42 @@ const MonthlyRewardsShop = ({ profile }: { profile: UserProfile }) => {
 
 const Dashboard = ({ profile }: { profile: UserProfile }) => {
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [motivations, setMotivations] = useState<Motivation[]>([]);
   const isParent = profile.role === 'parent';
   const level = getLevel(profile.totalPointsEarned);
 
   useEffect(() => {
-    const q = isParent 
+    const qTasks = isParent 
       ? query(collection(db, 'tasks'), orderBy('createdAt', 'desc'))
       : query(collection(db, 'tasks'), where('assignedTo', '==', profile.uid), orderBy('createdAt', 'desc'));
     
-    return onSnapshot(q, (snapshot) => {
-      setTasks(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Task)));
+    const unsubTasks = onSnapshot(qTasks, (snapshot) => {
+      setTasks(snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as Task))
+        .filter(t => t.status !== 'approved')
+      );
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'tasks');
     });
+
+    // Fetch motivations for children
+    let unsubMotivations = () => {};
+    if (!isParent) {
+      const qMotivations = query(
+        collection(db, 'motivations'), 
+        where('receiverId', '==', profile.uid), 
+        orderBy('createdAt', 'desc'), 
+        limit(3)
+      );
+      unsubMotivations = onSnapshot(qMotivations, (snapshot) => {
+        setMotivations(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Motivation)));
+      });
+    }
+
+    return () => {
+      unsubTasks();
+      unsubMotivations();
+    };
   }, [profile.uid, isParent]);
 
   const requestNotifications = async () => {
@@ -977,6 +1097,55 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
         ) : (
           <FamilyBigGoals />
         )}
+
+        {/* Motivation Feed for Children */}
+        {!isParent && motivations.length > 0 && (
+           <section className="space-y-4">
+              <div className="flex justify-between items-center px-1">
+                <h3 className="text-sm font-bold text-summer-text/40 uppercase tracking-[0.2em]">كلمات تشجيعية ✨</h3>
+                <Link to="/motivation" className="text-[10px] font-black text-summer-accent">عرض الكل</Link>
+              </div>
+              <div className="grid grid-cols-1 gap-3">
+                {motivations.map(m => (
+                  <motion.div 
+                    key={m.id}
+                    initial={{ scale: 0.95, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    className="bg-summer-accent/10 border border-summer-accent/30 p-4 rounded-3xl flex items-center gap-4 shadow-lg group"
+                  >
+                    <div className="w-10 h-10 bg-summer-accent rounded-xl flex items-center justify-center text-white shrink-0 shadow-lg group-hover:rotate-12 transition-transform">
+                      <Sparkles size={20} />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-summer-text leading-relaxed">"{m.message}"</p>
+                      <p className="text-[9px] text-summer-text/40 mt-1 font-black">بقلم: {m.senderName}</p>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+           </section>
+        )}
+
+        {/* Recently Notifications Feed (Middle of the page as requested) */}
+        <section className="space-y-4">
+          <div className="flex justify-between items-center px-1">
+            <h3 className="text-sm font-bold text-summer-text/40 uppercase tracking-[0.2em]">آخر التنبيهات العائلية 🔔</h3>
+            <button 
+              onClick={() => {
+                // We'd need something to trigger the modal from here, or just let users use the bell
+              }}
+              className="text-[10px] font-black text-summer-accent opacity-0" // Hidden but spacing
+            >
+              عرض الكل
+            </button>
+          </div>
+          <div className="bg-summer-card p-6 rounded-[2.5rem] border border-white/40 shadow-xl overflow-hidden relative">
+             <div className="absolute top-0 right-0 p-4 opacity-[0.03] rotate-12">
+                <BellRing size={80} />
+             </div>
+             <NotificationsFeed profile={profile} limit={3} />
+          </div>
+        </section>
 
         {/* User Stats & Level */}
         {!isParent && (
@@ -1264,6 +1433,8 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
   const [editEndTime, setEditEndTime] = useState('');
   const [showComments, setShowComments] = useState<string | null>(null);
 
+  const [showArchive, setShowArchive] = useState(false);
+
   useEffect(() => {
     const q = isParent 
       ? query(collection(db, 'tasks'), orderBy('createdAt', 'desc'))
@@ -1286,6 +1457,10 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
       unsubscribeFamily();
     };
   }, [profile.uid, isParent]);
+
+  const activeTasks = tasks.filter(t => t.status !== 'approved');
+  const archivedTasks = tasks.filter(t => t.status === 'approved');
+  const displayTasks = showArchive ? archivedTasks : activeTasks;
 
   const addTask = async () => {
     if (!newTitle) return;
@@ -1409,7 +1584,30 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
       <Header title="لوحة المهام النشطة" profile={profile} />
       
       <div className="px-6 mt-6 space-y-6">
-        {isParent && (
+        <div className="flex justify-between items-center px-1 mb-2">
+          <div className="flex bg-white/10 p-1 rounded-2xl border border-white/10 flex-1">
+            <button 
+              onClick={() => setShowArchive(false)}
+              className={cn(
+                "flex-1 py-3 rounded-xl text-xs font-black transition-all",
+                !showArchive ? "bg-summer-accent text-white shadow-lg" : "text-summer-text/40 hover:text-summer-text"
+              )}
+            >
+              المهام النشطة
+            </button>
+            <button 
+              onClick={() => setShowArchive(true)}
+              className={cn(
+                "flex-1 py-3 rounded-xl text-xs font-black transition-all",
+                showArchive ? "bg-summer-accent text-white shadow-lg" : "text-summer-text/40 hover:text-summer-text"
+              )}
+            >
+              الأرشيف (مكتمل)
+            </button>
+          </div>
+        </div>
+
+        {isParent && !showArchive && (
           <button 
             onClick={() => setShowAdd(!showAdd)}
             className="w-full bg-summer-primary text-white rounded-2xl py-5 font-bold flex items-center justify-center gap-3 shadow-xl hover:bg-summer-primary/90 transition-all active:scale-95"
@@ -1566,7 +1764,7 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
         </AnimatePresence>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {tasks.map((task) => (
+          {displayTasks.map((task) => (
             <div key={task.id} className="bg-summer-card rounded-3xl border border-white/40 p-6 shadow-xl space-y-4 relative overflow-hidden group hover:border-summer-accent/30 transition-all">
               {task.status === 'approved' && (
                 <div className="absolute top-0 right-0 px-10 py-1 bg-emerald-500 text-white text-[10px] font-black uppercase tracking-[0.2em] translate-x-1/3 translate-y-1/2 rotate-45 z-20">
@@ -2864,6 +3062,110 @@ const BehaviorRatingPage = ({ profile }: { profile: UserProfile }) => {
   );
 };
 
+const MotivationCardShare = ({ motivation, onClose }: { motivation: Motivation; onClose: () => void }) => {
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [downloading, setDownloading] = useState(false);
+
+  const downloadImage = async () => {
+    if (!cardRef.current) return;
+    setDownloading(true);
+    try {
+      const dataUrl = await toPng(cardRef.current, { cacheBust: true });
+      const link = document.createElement('a');
+      link.download = `motivation-${motivation.id}.png`;
+      link.href = dataUrl;
+      link.click();
+      
+      // WhatsApp share suggestion
+      alert('تم تحميل الصورة بنجاح! يمكنك الآن مشاركتها عبر واتساب مع أفراد عائلتك.');
+    } catch (err) {
+      console.error(err);
+      alert('حدث خطأ أثناء تحميل الصورة');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  return (
+    <motion.div 
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div 
+        className="w-full max-w-sm flex flex-col gap-6"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* The Card to be captured */}
+        <div 
+          ref={cardRef}
+          className="bg-summer-card rounded-[2.5rem] border-4 border-white/40 overflow-hidden shadow-2xl relative"
+        >
+           {/* Beautiful background elements */}
+           <div className="absolute inset-0 bg-summer-bg opacity-20"></div>
+           <div className="absolute top-[-20%] right-[-20%] w-64 h-64 bg-summer-accent/10 rounded-full blur-3xl"></div>
+           <div className="absolute bottom-[-10%] left-[-10%] w-48 h-48 bg-summer-primary/10 rounded-full blur-2xl"></div>
+
+           <div className="relative p-10 space-y-8 text-center flex flex-col items-center">
+              <div className="w-20 h-20 bg-summer-accent text-white rounded-[2rem] flex items-center justify-center shadow-2xl rotate-3">
+                 <Sparkles size={40} className="animate-pulse" />
+              </div>
+              
+              <div className="space-y-4">
+                <h2 className="text-2xl font-black text-summer-text">رسالة فخر وإيجابية ✨</h2>
+                <div className="w-12 h-1 bg-summer-accent mx-auto rounded-full"></div>
+              </div>
+
+              <div className="bg-white/30 backdrop-blur-md p-8 rounded-[2rem] border border-white/40 shadow-inner relative">
+                 <p className="text-xl font-bold text-summer-text leading-relaxed text-right italic">"{motivation.message}"</p>
+                 <div className="absolute top-0 right-4 translate-y-[-50%] bg-summer-accent text-white px-4 py-1 rounded-full text-[10px] font-black">رسالة اليوم</div>
+              </div>
+
+              <div className="pt-4 border-t border-white/20 w-full flex justify-between items-center px-2">
+                 <div className="text-right">
+                    <p className="text-[10px] text-summer-text/40 font-bold uppercase tracking-widest">مقدم من:</p>
+                    <p className="text-sm font-black text-summer-text">{motivation.senderName}</p>
+                 </div>
+                 <div className="text-left">
+                    <p className="text-[10px] text-summer-text/40 font-bold uppercase tracking-widest">إلى:</p>
+                    <p className="text-sm font-black text-summer-text">{motivation.userName}</p>
+                 </div>
+              </div>
+
+              <p className="text-[9px] text-summer-text/20 font-bold uppercase tracking-[0.3em]">نظام العائلة الذكي - SMART FAMILY SYSTEM</p>
+           </div>
+        </div>
+
+        <div className="flex gap-4">
+          <button 
+            onClick={downloadImage}
+            disabled={downloading}
+            className="flex-1 bg-summer-accent text-white py-5 rounded-3xl font-black shadow-xl active:scale-95 transition-all flex items-center justify-center gap-3 disabled:opacity-50"
+          >
+            {downloading ? (
+              <Loader2 className="animate-spin" />
+            ) : (
+              <>
+                <Download size={20} />
+                تحميل الصورة للمشاركة
+              </>
+            )}
+          </button>
+          
+          <button 
+            onClick={onClose}
+            className="w-16 h-16 bg-white/20 flex items-center justify-center rounded-3xl text-white hover:bg-white/30 transition-all"
+          >
+            <X size={24} />
+          </button>
+        </div>
+      </div>
+    </motion.div>
+  );
+};
+
 const MotivationPage = ({ profile }: { profile: UserProfile }) => {
   const [motivations, setMotivations] = useState<Motivation[]>([]);
   const [templates, setTemplates] = useState<MotivationTemplate[]>([]);
@@ -2872,10 +3174,15 @@ const MotivationPage = ({ profile }: { profile: UserProfile }) => {
   const [customMsg, setCustomMsg] = useState('');
   const [showAddTemplate, setShowAddTemplate] = useState(false);
   const [newTemplateMsg, setNewTemplateMsg] = useState('');
+  const [selectedMotivationShare, setSelectedMotivationShare] = useState<Motivation | null>(null);
   const isParent = profile.role === 'parent';
 
   useEffect(() => {
-    const qMotivations = query(collection(db, 'motivations'), orderBy('createdAt', 'desc'), limit(50));
+    const motivationsRef = collection(db, 'motivations');
+    const qMotivations = isParent 
+      ? query(motivationsRef, orderBy('createdAt', 'desc'), limit(50))
+      : query(motivationsRef, where('receiverId', '==', profile.uid), orderBy('createdAt', 'desc'), limit(50));
+
     const unsubscribeMotivations = onSnapshot(qMotivations, (snapshot) => {
       setMotivations(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Motivation)));
     }, (err) => handleFirestoreError(err, OperationType.LIST, 'motivations'));
@@ -2916,8 +3223,13 @@ const MotivationPage = ({ profile }: { profile: UserProfile }) => {
 
       await sendNotification(selectedChild, 'رسالة محفزة! ✨', `لديك رسالة إيجابية من ${profile.displayName}: ${msg}`, 'motivation');
       
+      // WhatsApp Share Link
+      const shareText = `نصيحة من محفز العائلة الذكي لـ ${child.displayName}: 🌟\n\n"${msg}"\n\nفخور فيك يا بطل! ❤️`;
+      const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(shareText)}`;
+      window.open(whatsappUrl, '_blank');
+
       setCustomMsg('');
-      alert('تم إرسال المحفز بنجاح! 🌟');
+      alert('تم إرسال المحفز بنجاح ومشاركته عبر واتساب! 🌟');
     } catch (err) {
       console.error(err);
       alert('فشل في إرسال المحفز');
@@ -3066,7 +3378,15 @@ const MotivationPage = ({ profile }: { profile: UserProfile }) => {
                          <p className="text-xs font-black text-summer-text">{m.userName}</p>
                          <p className="text-[9px] text-summer-text/30">من: {m.senderName}</p>
                        </div>
-                       <span className="text-[8px] text-summer-text/20 font-bold">{m.createdAt?.toDate?.()?.toLocaleTimeString('ar-SA')}</span>
+                       <div className="flex items-center gap-2">
+                         <button 
+                           onClick={() => setSelectedMotivationShare(m)}
+                           className="p-2 bg-summer-accent/10 text-summer-accent rounded-lg hover:bg-summer-accent/20 transition-all"
+                         >
+                           <Share2 size={14} />
+                         </button>
+                         <span className="text-[8px] text-summer-text/20 font-bold">{m.createdAt?.toDate?.()?.toLocaleTimeString('ar-SA')}</span>
+                       </div>
                     </div>
                     <div className="bg-white/10 p-4 rounded-2xl border border-white/5">
                        <p className="text-sm font-bold text-summer-text leading-relaxed">"{m.message}"</p>
@@ -3083,6 +3403,15 @@ const MotivationPage = ({ profile }: { profile: UserProfile }) => {
            </div>
         </section>
       </div>
+
+      <AnimatePresence>
+        {selectedMotivationShare && (
+          <MotivationCardShare 
+            motivation={selectedMotivationShare} 
+            onClose={() => setSelectedMotivationShare(null)} 
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 };
