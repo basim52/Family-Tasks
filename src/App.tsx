@@ -24,6 +24,8 @@ import {
   CheckCircle2,
   Target,
   Trophy,
+  Award,
+  Medal,
   Settings,
   ShoppingBag,
   Heart,
@@ -3071,17 +3073,15 @@ const MotivationCardShare = ({ motivation, onClose }: { motivation: Motivation; 
     if (!cardRef.current) return;
     setDownloading(true);
     try {
-      const dataUrl = await toPng(cardRef.current, { cacheBust: true });
+      const dataUrl = await toPng(cardRef.current, { cacheBust: true, pixelRatio: 2 });
       const link = document.createElement('a');
       link.download = `motivation-${motivation.id}.png`;
       link.href = dataUrl;
       link.click();
-      
-      // WhatsApp share suggestion
-      alert('تم تحميل الصورة بنجاح! يمكنك الآن مشاركتها عبر واتساب مع أفراد عائلتك.');
+      alert('تم تحميل وسام الإيجابية! 🏆 يمكنك الآن إهدائه ومشاركته.');
     } catch (err) {
       console.error(err);
-      alert('حدث خطأ أثناء تحميل الصورة');
+      alert('حدث خطأ أثناء تحميل الوسام');
     } finally {
       setDownloading(false);
     }
@@ -3102,40 +3102,72 @@ const MotivationCardShare = ({ motivation, onClose }: { motivation: Motivation; 
         {/* The Card to be captured */}
         <div 
           ref={cardRef}
-          className="bg-summer-card rounded-[2.5rem] border-4 border-white/40 overflow-hidden shadow-2xl relative"
+          className="bg-[#fdfbf7] rounded-[3rem] border-[6px] border-summer-accent/20 overflow-hidden shadow-2xl relative"
         >
-           {/* Beautiful background elements */}
-           <div className="absolute inset-0 bg-summer-bg opacity-20"></div>
-           <div className="absolute top-[-20%] right-[-20%] w-64 h-64 bg-summer-accent/10 rounded-full blur-3xl"></div>
-           <div className="absolute bottom-[-10%] left-[-10%] w-48 h-48 bg-summer-primary/10 rounded-full blur-2xl"></div>
+           {/* Decorative corner stars */}
+           <div className="absolute top-6 left-6 text-yellow-400 opacity-60"><Star size={24} fill="currentColor" /></div>
+           <div className="absolute top-20 right-10 text-summer-accent opacity-40 rotate-12"><Heart size={16} fill="currentColor" /></div>
+           <div className="absolute bottom-40 left-8 text-blue-400 opacity-30 rotate-[-20deg]"><Trophy size={32} /></div>
 
            <div className="relative p-10 space-y-8 text-center flex flex-col items-center">
-              <div className="w-20 h-20 bg-summer-accent text-white rounded-[2rem] flex items-center justify-center shadow-2xl rotate-3">
-                 <Sparkles size={40} className="animate-pulse" />
+              {/* Main Badge Wrapper */}
+              <div className="relative">
+                <div className="w-24 h-24 bg-gradient-to-br from-summer-accent to-summer-primary text-white rounded-full flex items-center justify-center shadow-2xl relative z-10">
+                   <Medal size={48} className="drop-shadow-lg" />
+                </div>
+                {/* Glow Effect */}
+                <div className="absolute inset-0 bg-summer-accent blur-2xl opacity-20 scale-150 animate-pulse"></div>
               </div>
               
               <div className="space-y-4">
-                <h2 className="text-2xl font-black text-summer-text">رسالة فخر وإيجابية ✨</h2>
-                <div className="w-12 h-1 bg-summer-accent mx-auto rounded-full"></div>
+                <h2 className="text-2xl font-black text-summer-text tracking-tight">وسام التميز الذكي ✨</h2>
+                <p className="text-[10px] text-summer-accent font-black uppercase tracking-[0.3em]">Certificate of Excellence</p>
               </div>
 
-              <div className="bg-white/30 backdrop-blur-md p-8 rounded-[2rem] border border-white/40 shadow-inner relative">
-                 <p className="text-xl font-bold text-summer-text leading-relaxed text-right italic">"{motivation.message}"</p>
-                 <div className="absolute top-0 right-4 translate-y-[-50%] bg-summer-accent text-white px-4 py-1 rounded-full text-[10px] font-black">رسالة اليوم</div>
+              {/* Message Content */}
+              <div className="w-full bg-white/60 backdrop-blur-sm p-8 rounded-[2.5rem] border-2 border-dashed border-summer-accent/20 shadow-inner relative overflow-hidden">
+                 <div className="absolute inset-0 opacity-[0.02]" style={{ backgroundImage: 'radial-gradient(#000 1px, transparent 0)', backgroundSize: '12px 12px' }}></div>
+                 <p className="text-xl font-bold text-summer-text leading-relaxed text-right italic relative z-10">"{motivation.message}"</p>
+                 <div className="absolute -bottom-2 -left-2 text-summer-accent/5"><Sparkles size={60} /></div>
               </div>
 
-              <div className="pt-4 border-t border-white/20 w-full flex justify-between items-center px-2">
+              {/* CUTE BADGES SECTION */}
+              <div className="flex gap-4 justify-center py-2 w-full">
+                 <div className="flex flex-col items-center gap-1">
+                    <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 border-2 border-emerald-500/20 shadow-sm">
+                       <Zap size={20} fill="currentColor" />
+                    </div>
+                    <span className="text-[8px] font-black text-emerald-700">بطل المهام</span>
+                 </div>
+                 <div className="flex flex-col items-center gap-1">
+                    <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 border-2 border-amber-500/20 shadow-sm">
+                       <Star size={20} fill="currentColor" />
+                    </div>
+                    <span className="text-[8px] font-black text-amber-700">مبدع</span>
+                 </div>
+                 <div className="flex flex-col items-center gap-1">
+                    <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 border-2 border-blue-500/20 shadow-sm">
+                       <Award size={20} fill="currentColor" />
+                    </div>
+                    <span className="text-[8px] font-black text-blue-700">الملتزم</span>
+                 </div>
+              </div>
+
+              <div className="pt-6 border-t border-summer-accent/10 w-full flex justify-between items-center px-4">
                  <div className="text-right">
-                    <p className="text-[10px] text-summer-text/40 font-bold uppercase tracking-widest">مقدم من:</p>
+                    <p className="text-[9px] text-summer-text/30 font-bold uppercase tracking-widest leading-none mb-1">من القلب:</p>
                     <p className="text-sm font-black text-summer-text">{motivation.senderName}</p>
                  </div>
                  <div className="text-left">
-                    <p className="text-[10px] text-summer-text/40 font-bold uppercase tracking-widest">إلى:</p>
+                    <p className="text-[9px] text-summer-text/30 font-bold uppercase tracking-widest leading-none mb-1">إلى البطل/ة:</p>
                     <p className="text-sm font-black text-summer-text">{motivation.userName}</p>
                  </div>
               </div>
 
-              <p className="text-[9px] text-summer-text/20 font-bold uppercase tracking-[0.3em]">نظام العائلة الذكي - SMART FAMILY SYSTEM</p>
+              <div className="pt-4 flex flex-col items-center gap-1 opacity-40">
+                 <p className="text-[7px] text-summer-text font-black uppercase tracking-[0.4em]">Family Smart System • © 2026</p>
+                 <div className="w-24 h-0.5 bg-summer-text/20 rounded-full"></div>
+              </div>
            </div>
         </div>
 
@@ -3143,23 +3175,23 @@ const MotivationCardShare = ({ motivation, onClose }: { motivation: Motivation; 
           <button 
             onClick={downloadImage}
             disabled={downloading}
-            className="flex-1 bg-summer-accent text-white py-5 rounded-3xl font-black shadow-xl active:scale-95 transition-all flex items-center justify-center gap-3 disabled:opacity-50"
+            className="flex-1 bg-summer-accent text-white py-5 rounded-[2rem] font-black shadow-xl active:scale-95 transition-all flex items-center justify-center gap-3 disabled:opacity-50"
           >
             {downloading ? (
               <Loader2 className="animate-spin" />
             ) : (
               <>
-                <Download size={20} />
-                تحميل الصورة للمشاركة
+                <Download size={22} />
+                تحميل وسام الفخر
               </>
             )}
           </button>
           
           <button 
             onClick={onClose}
-            className="w-16 h-16 bg-white/20 flex items-center justify-center rounded-3xl text-white hover:bg-white/30 transition-all"
+            className="w-18 h-18 bg-white/20 flex items-center justify-center rounded-[2rem] text-white hover:bg-white/30 transition-all border border-white/20"
           >
-            <X size={24} />
+            <X size={28} />
           </button>
         </div>
       </div>
