@@ -37,7 +37,8 @@ import {
   Zap,
   Sparkles,
   Share2,
-  Download
+  Download,
+  Trash2
 } from 'lucide-react';
 import { auth, db, storage } from './lib/firebase';
 import { useAuth } from './hooks/useAuth';
@@ -3253,6 +3254,22 @@ const MotivationPage = ({ profile }: { profile: UserProfile }) => {
     }
   };
 
+  const deleteMotivation = async (id: string) => {
+    if (confirm('هل تريد حذف هذه الرسالة من السجل؟')) {
+      try {
+        await deleteDoc(doc(db, 'motivations', id));
+      } catch (err) {
+        console.error(err);
+        alert('فشل في حذف الرسالة');
+      }
+    }
+  };
+
+  const shareToWhatsApp = (m: Motivation) => {
+    const text = `رسالة محفزة من عائلتي الذكية ✨\n\n"${m.message}"\n\nمن: ${m.senderName}\nإلى: ${m.userName}\n💎 نظام العائلة الذكي`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+  };
+
   const defaultTemplates = [
     "أنت مبدع ورائع اليوم! 🌟",
     "فخور جداً بالتزامك بالمهام 👏",
@@ -3380,11 +3397,28 @@ const MotivationPage = ({ profile }: { profile: UserProfile }) => {
                        </div>
                        <div className="flex items-center gap-2">
                          <button 
+                           onClick={() => shareToWhatsApp(m)}
+                           className="p-2 bg-emerald-500/10 text-emerald-600 rounded-lg hover:bg-emerald-500/20 transition-all"
+                           title="مشاركة عبر واتساب"
+                         >
+                           <MessageCircle size={14} />
+                         </button>
+                         <button 
                            onClick={() => setSelectedMotivationShare(m)}
                            className="p-2 bg-summer-accent/10 text-summer-accent rounded-lg hover:bg-summer-accent/20 transition-all"
+                           title="تحويل لصورة"
                          >
                            <Share2 size={14} />
                          </button>
+                         {(isParent || m.senderId === profile.uid) && (
+                           <button 
+                             onClick={() => deleteMotivation(m.id)}
+                             className="p-2 bg-red-500/10 text-red-500 rounded-lg hover:bg-red-500/20 transition-all"
+                             title="حذف"
+                           >
+                             <Trash2 size={14} />
+                           </button>
+                         )}
                          <span className="text-[8px] text-summer-text/20 font-bold">{m.createdAt?.toDate?.()?.toLocaleTimeString('ar-SA')}</span>
                        </div>
                     </div>
