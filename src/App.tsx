@@ -15,6 +15,7 @@ import {
   LogOut,
   PlusCircle,
   Bell,
+  BellRing,
   ArrowUpRight,
   TrendingUp,
   Star,
@@ -31,7 +32,9 @@ import {
   Smile,
   Frown,
   Meh,
-  Plus
+  Plus,
+  Zap,
+  Sparkles
 } from 'lucide-react';
 import { auth, db, storage } from './lib/firebase';
 import { useAuth } from './hooks/useAuth';
@@ -52,10 +55,11 @@ import {
   deleteDoc,
   arrayUnion,
   limit,
-  getDoc
+  getDoc,
+  getDocs
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { Task, Message, UserProfile, Prize, TaskComment, BigGoal, MonthlyReward, Call } from './types';
+import { Task, Message, UserProfile, Prize, TaskComment, BigGoal, MonthlyReward, Call, BehaviorRating, Motivation, MotivationTemplate, Cheque } from './types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -923,6 +927,19 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
     });
   }, [profile.uid, isParent]);
 
+  const requestNotifications = async () => {
+    if (!('Notification' in window)) {
+      alert('متصفحك لا يدعم الإشعارات.');
+      return;
+    }
+    const permission = await window.Notification.requestPermission();
+    if (permission === 'granted') {
+      alert('تم تفعيل الإشعارات بنجاح! ستصلك تنبيهات المهام والرسائل حتى لو كان التطبيق في الخلفية.');
+    } else {
+      alert('تحتاج للموافقة على الإذن من إعدادات المتصفح لتفعيل الإشعارات.');
+    }
+  };
+
   return (
     <div className="pb-24 animate-in fade-in slide-in-from-bottom-4 duration-500 bg-summer-bg min-h-screen">
       <Header title={`مرحباً، ${profile.displayName}`} profile={profile} />
@@ -930,6 +947,29 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
       <div className="px-6 space-y-8 mt-6">
         {/* Family Mood Dashboard */}
         <FamilyPulse profile={profile} />
+
+        {/* Notifications Prompt for Children */}
+        {!isParent && typeof window !== 'undefined' && 'Notification' in window && window.Notification.permission !== 'granted' && (
+           <motion.section 
+             initial={{ scale: 0.9, opacity: 0 }}
+             animate={{ scale: 1, opacity: 1 }}
+             className="bg-summer-accent/10 p-6 rounded-3xl border border-summer-accent/20 space-y-4 shadow-xl"
+           >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-summer-accent rounded-xl flex items-center justify-center text-white shadow-lg">
+                  <BellRing size={20} />
+                </div>
+                <h3 className="font-bold text-summer-text">فعل التنبيهات! 🔔</h3>
+              </div>
+              <p className="text-xs text-summer-text/60 leading-relaxed font-medium">فعل التنبيهات عشان ما تفوتك أي مهمة جديدة أو مكافأة من أهلك!</p>
+              <button 
+                onClick={requestNotifications}
+                className="w-full bg-summer-accent text-white py-4 rounded-2xl font-black shadow-lg hover:shadow-summer-accent/40 active:scale-95 transition-all text-sm"
+              >
+                تفعيل الإشعارات الآن
+              </button>
+           </motion.section>
+        )}
 
         {/* Big Goal Section */}
         {!isParent ? (
@@ -950,7 +990,7 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
         {isParent && (
           <section className="space-y-4">
             <h3 className="text-sm font-bold text-summer-text/40 uppercase tracking-[0.2em] px-1">إجراءات سريعة</h3>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <Link to="/tasks" className="bg-summer-card p-6 rounded-3xl border border-white/20 flex items-center gap-4 group shadow-xl hover:border-white/40 transition-all">
                 <div className="w-12 h-12 summer-gradient rounded-2xl flex items-center justify-center text-white group-hover:scale-110 transition-transform">
                   <PlusCircle size={24} />
@@ -967,6 +1007,24 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
                 <div className="text-right">
                   <p className="font-bold text-summer-text text-sm">اتصال مرئي</p>
                   <p className="text-[10px] text-summer-text/40">تواصل مباشر</p>
+                </div>
+              </Link>
+              <Link to="/behavior" className="bg-summer-card p-6 rounded-3xl border border-white/20 flex items-center gap-4 group shadow-xl hover:border-white/40 transition-all">
+                <div className="w-12 h-12 bg-emerald-500 rounded-2xl flex items-center justify-center text-white group-hover:scale-110 transition-transform">
+                  <Star size={24} />
+                </div>
+                <div className="text-right">
+                  <p className="font-bold text-summer-text text-sm">تقييم السلوك</p>
+                  <p className="text-[10px] text-summer-text/40">منح/خصم نقاط</p>
+                </div>
+              </Link>
+              <Link to="/motivation" className="bg-summer-card p-6 rounded-3xl border border-white/20 flex items-center gap-4 group shadow-xl hover:border-white/40 transition-all">
+                <div className="w-12 h-12 bg-summer-accent rounded-2xl flex items-center justify-center text-white group-hover:scale-110 transition-transform">
+                  <Zap size={24} />
+                </div>
+                <div className="text-right">
+                  <p className="font-bold text-summer-text text-sm">المحفز الذكي</p>
+                  <p className="text-[10px] text-summer-text/40">رسائل إيجابية</p>
                 </div>
               </Link>
             </div>
@@ -2101,20 +2159,101 @@ const ChatPage = ({ profile }: { profile: UserProfile }) => {
   );
 };
 
+const ChequeCard = ({ cheque, onClose }: { cheque: Cheque; onClose: () => void }) => {
+  return (
+    <motion.div 
+      initial={{ opacity: 0, scale: 0.9, y: 20 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.9, y: 20 }}
+      className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div 
+        className="w-full max-w-2xl bg-[#fdfbf7] rounded-xl overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.3)] relative border-4 border-[#e5d5b7] p-8 space-y-8"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Pattern Background */}
+        <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'radial-gradient(#000 1px, transparent 0)', backgroundSize: '10px 10px' }}></div>
+        
+        {/* Header */}
+        <div className="flex justify-between items-start border-b-2 border-dashed border-[#e5d5b7] pb-6">
+          <div className="text-right">
+            <h2 className="text-[#8b7355] font-black text-2xl uppercase tracking-tighter">البنك العائلي الذكي</h2>
+            <p className="text-[10px] text-[#a08b70] font-bold">SMART FAMILY BANK</p>
+          </div>
+          <div className="text-left space-y-1">
+             <p className="text-[10px] text-[#a08b70] font-bold">DATE: {cheque.issuedAt?.toDate?.()?.toLocaleDateString('ar-EG')}</p>
+             <p className="text-[10px] text-[#a08b70] font-bold">NO: {cheque.serialNumber}</p>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="space-y-12 py-8 relative">
+           <div className="flex items-center gap-4 border-b border-[#e5d5b7] pb-2">
+             <span className="text-[#a08b70] text-sm font-bold shrink-0">يصرف لأمر السيد/ة:</span>
+             <span className="text-[#4a3721] text-xl font-black flex-1 border-b-2 border-dotted border-[#e5d5b7] px-4 font-mono">{cheque.userName}</span>
+           </div>
+
+           <div className="flex items-center gap-4 border-b border-[#e5d5b7] pb-2">
+             <span className="text-[#a08b70] text-sm font-bold shrink-0">مبلغ وقدره:</span>
+             <span className="text-[#4a3721] text-lg font-bold flex-1 border-b-2 border-dotted border-[#e5d5b7] px-4">
+                {cheque.amount} ريال سعودي فقط لا غير
+             </span>
+             <div className="bg-[#e5d5b7] px-6 py-2 rounded-lg border-2 border-[#8b7355] shadow-inner">
+                <span className="text-[#4a3721] font-black text-2xl">{cheque.amount} ر.س</span>
+             </div>
+           </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex justify-between items-center pt-8">
+           <div className="relative">
+              <div className="w-24 h-24 rounded-full border-4 border-[#8b7355]/20 flex items-center justify-center rotate-[-15deg] opacity-40">
+                 <div className="text-[#8b7355] font-black text-[8px] text-center uppercase tracking-widest leading-none">
+                    Family Bank<br/>Official<br/>Seal
+                 </div>
+              </div>
+           </div>
+           
+           <div className="text-center space-y-2">
+              <div className="w-48 h-[1px] bg-[#8b7355]"></div>
+              <p className="text-[10px] text-[#a08b70] font-bold uppercase">المدير المالي (التوقيع)</p>
+              <p className="text-xs text-[#4a3721] font-black italic">{cheque.issuedByName || 'الأهل'}</p>
+           </div>
+        </div>
+
+        <button 
+          onClick={onClose}
+          className="absolute top-4 left-4 text-[#a08b70] hover:text-[#8b7355]"
+        >
+          <X size={20} />
+        </button>
+
+        <p className="text-center text-[7px] text-[#a08b70]/50 pt-4 font-mono tracking-[0.5em]">
+           ║▌║█║▌│║▌║▌█║ {cheque.transactionId} ║▌║█║▌│║▌║▌█║
+        </p>
+      </div>
+    </motion.div>
+  );
+};
+
 const WalletPage = ({ profile }: { profile: UserProfile }) => {
   const [requests, setRequests] = useState<any[]>([]);
+  const [selectedCheque, setSelectedCheque] = useState<Cheque | null>(null);
   const isParent = profile.role === 'parent';
 
   useEffect(() => {
-    const q = isParent 
+    const qTr = isParent 
       ? query(collection(db, 'transactions'), orderBy('requestedAt', 'desc'))
       : query(collection(db, 'transactions'), where('userId', '==', profile.uid), orderBy('requestedAt', 'desc'));
     
-    return onSnapshot(q, (snapshot) => {
+    const unsubTr = onSnapshot(qTr, (snapshot) => {
       setRequests(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'transactions');
     });
+
+    return () => unsubTr();
   }, [profile.uid, isParent]);
 
   const requestRedeem = async () => {
@@ -2127,23 +2266,54 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
       userName: profile.displayName,
       type: 'redeem',
       points: profile.points,
-      currencyAmount: profile.points * 0.1, // Example conversion
+      currencyAmount: Math.floor(profile.points * 0.25), // Use current exchange rate
       status: 'pending',
       requestedAt: serverTimestamp(),
     });
-
-    // Notify Parents
-    const parents = await getDoc(doc(db, 'config', 'family_data')); // Simplified lookup
-    // Actually we best fetch all parents from users collection
   };
 
   const approveRedeem = async (request: any) => {
-    // 1. Mark status
-    await updateDoc(doc(db, 'transactions', request.id), { status: 'approved', processedAt: serverTimestamp() });
-    // 2. Clear points in profile
-    await updateDoc(doc(db, 'users', request.userId), { points: 0 });
-    // 3. Notify Child
-    await sendNotification(request.userId, 'تم استلام المبلغ! 💸', `لقد تمت الموافقة على طلب الصرف الخاص بك.`, 'success');
+    try {
+      // 1. Mark status
+      await updateDoc(doc(db, 'transactions', request.id), { status: 'approved', processedAt: serverTimestamp() });
+      
+      // 2. Clear points in profile
+      await updateDoc(doc(db, 'users', request.userId), { points: 0 });
+      
+      // 3. Create Cheque
+      const serial = `CHQ-${Math.floor(Math.random() * 900000 + 100000)}`;
+      const chequeData = {
+        transactionId: request.id,
+        userId: request.userId,
+        userName: request.userName,
+        amount: request.currencyAmount,
+        currency: 'ر.س',
+        issuedAt: serverTimestamp(),
+        issuedBy: profile.uid,
+        issuedByName: profile.displayName,
+        serialNumber: serial
+      };
+      
+      await addDoc(collection(db, 'cheques'), chequeData);
+      
+      // 4. Notify Child
+      await sendNotification(request.userId, 'تم استلام الشيك! ✍️', `لقد تمت الموافقة على طلب الصرف. تفضل الشيك الخاص بك بمبلغ ${request.currencyAmount} ريال.`, 'success');
+      
+      alert(`تمت الموافقة! رقم الشيك: ${serial}`);
+    } catch (err) {
+      console.error(err);
+      alert('حدث خطأ أثناء تنفيذ العملية');
+    }
+  };
+
+  const viewCheque = async (transactionId: string) => {
+    const q = query(collection(db, 'cheques'), where('transactionId', '==', transactionId));
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      setSelectedCheque({ id: snap.docs[0].id, ...snap.docs[0].data() } as Cheque);
+    } else {
+      alert('لم يتم العثور على شيك لهذه العملية');
+    }
   };
 
   return (
@@ -2151,6 +2321,11 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
       <Header title="البنك العائلي" profile={profile} />
       <div className="px-6 mt-6 space-y-8">
         <WalletCard profile={profile} exchangeRate={0.25} />
+
+        <div className="bg-summer-accent/10 border border-summer-accent/20 p-4 rounded-2xl flex items-center gap-3">
+          <Bell className="text-summer-accent shrink-0" size={20} />
+          <p className="text-[11px] font-bold text-summer-text">يتم استبدال النقاط وتحويل المبالغ في تاريخ 10 من كل شهر ميلادي 🗓️</p>
+        </div>
 
         {!isParent && profile.points >= 100 && (
           <button 
@@ -2161,14 +2336,17 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
           </button>
         )}
 
-        <section className="space-y-4 text-right">
-          <h3 className="text-sm font-bold text-summer-text/30 uppercase tracking-[0.2em] px-1">سجل العمليات المالية</h3>
+        <section className="space-y-4">
+          <div className="flex justify-between items-center px-1">
+             <h3 className="text-sm font-bold text-summer-text/30 uppercase tracking-[0.2em]">سجل العمليات المالية</h3>
+             <span className="text-[10px] text-summer-accent font-black">إجمالي الطلبات: {requests.length}</span>
+          </div>
           <div className="space-y-4">
             {requests.map(req => (
-              <div key={req.id} className="bg-summer-card p-5 rounded-3xl border border-white/40 flex justify-between items-center shadow-xl">
+              <div key={req.id} className="bg-summer-card p-5 rounded-3xl border border-white/40 flex justify-between items-center shadow-xl group hover:border-summer-accent/40 transition-all">
                 <div className="flex items-center gap-4">
                   <div className={cn(
-                    "w-12 h-12 rounded-2xl flex items-center justify-center",
+                    "w-12 h-12 rounded-2xl flex items-center justify-center transition-colors",
                     req.status === 'approved' ? "bg-emerald-500/20 text-emerald-600" : "bg-summer-accent/10 text-summer-accent"
                   )}>
                     <TrendingUp size={24} />
@@ -2176,28 +2354,51 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
                   <div>
                     <p className="font-bold text-summer-text leading-none mb-1">{req.userName}</p>
                     <p className="text-[10px] text-summer-text/40">تحويل مبلغ: {req.currencyAmount} ريال</p>
+                    <p className="text-[8px] text-summer-text/20 mt-1 uppercase font-bold">{req.requestedAt?.toDate?.()?.toLocaleDateString('ar-SA')}</p>
                   </div>
                 </div>
-                {isParent && req.status === 'pending' ? (
-                  <button 
-                    onClick={() => approveRedeem(req)}
-                    className="bg-summer-accent text-white px-6 py-2 rounded-xl text-xs font-black shadow-lg"
-                  >
-                    تأكيد الصرف
-                  </button>
-                ) : (
-                  <span className={cn(
-                    "text-[10px] font-black uppercase tracking-[0.1em] px-4 py-2 rounded-xl border",
-                    req.status === 'approved' ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" : "bg-summer-accent/5 text-summer-accent border-summer-accent/10"
-                  )}>
-                    {req.status === 'approved' ? 'تم التنفيذ' : 'قيد المراجعة'}
-                  </span>
-                )}
+                
+                <div className="flex flex-col items-end gap-2">
+                  {req.status === 'approved' ? (
+                    <button 
+                      onClick={() => viewCheque(req.id)}
+                      className="flex items-center gap-1.5 text-emerald-600 bg-emerald-500/10 px-3 py-1.5 rounded-lg text-[9px] font-black border border-emerald-500/20 hover:bg-emerald-500/20 transition-all"
+                    >
+                      <UserIcon size={12} />
+                      عرض الشيك
+                    </button>
+                  ) : isParent ? (
+                    <button 
+                      onClick={() => approveRedeem(req)}
+                      className="bg-summer-accent text-white px-5 py-2 rounded-xl text-[10px] font-black shadow-lg hover:shadow-summer-accent/40 active:scale-95 transition-all"
+                    >
+                      تأكيد الصرف
+                    </button>
+                  ) : (
+                    <span className="text-[9px] font-black uppercase tracking-[0.1em] px-3 py-1.5 rounded-lg border bg-summer-accent/5 text-summer-accent border-summer-accent/10">
+                      قيد المراجعة
+                    </span>
+                  )}
+                  {req.status === 'approved' && (
+                    <span className="text-[8px] font-bold text-emerald-600/50">تم الصرف بنجاح ✓</span>
+                  )}
+                </div>
               </div>
             ))}
+            {requests.length === 0 && (
+              <div className="text-center py-12 text-summer-text/20 font-black italic">
+                 لا توجد طلبات صرف حالياً
+              </div>
+            )}
           </div>
         </section>
       </div>
+
+      <AnimatePresence>
+        {selectedCheque && (
+          <ChequeCard cheque={selectedCheque} onClose={() => setSelectedCheque(null)} />
+        )}
+      </AnimatePresence>
     </div>
   );
 };
@@ -2238,6 +2439,8 @@ const SettingsPage = ({ profile }: { profile: UserProfile }) => {
       alert('تحتاج للموافقة على الإذن من إعدادات المتصفح لتفعيل الإشعارات.');
     }
   };
+
+  const [showSmartBanner, setShowSmartBanner] = useState(true);
 
   if (profile.role !== 'parent') return <Navigate to="/" />;
 
@@ -2453,6 +2656,437 @@ const ShopPage = ({ profile }: { profile: UserProfile }) => {
   );
 };
 
+const BehaviorRatingPage = ({ profile }: { profile: UserProfile }) => {
+  const [ratings, setRatings] = useState<BehaviorRating[]>([]);
+  const [family, setFamily] = useState<UserProfile[]>([]);
+  const [selectedChild, setSelectedChild] = useState('');
+  const [points, setPoints] = useState(0);
+  const [reason, setReason] = useState('');
+  const isParent = profile.role === 'parent';
+
+  useEffect(() => {
+    const q = query(collection(db, 'behaviorRatings'), orderBy('createdAt', 'desc'), limit(50));
+    const unsubscribeRatings = onSnapshot(q, (snapshot) => {
+      setRatings(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as BehaviorRating)));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, 'behaviorRatings'));
+
+    const unsubscribeFamily = onSnapshot(collection(db, 'users'), (snapshot) => {
+      setFamily(snapshot.docs.map(doc => doc.data() as UserProfile));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, 'users'));
+
+    return () => {
+      unsubscribeRatings();
+      unsubscribeFamily();
+    };
+  }, []);
+
+  const submitRating = async () => {
+    if (!selectedChild || points === 0 || !reason) {
+      alert('يرجى اختيار العضو وتحديد النقاط والسبب');
+      return;
+    }
+    const child = family.find(f => f.uid === selectedChild);
+    if (!child) return;
+
+    try {
+      await addDoc(collection(db, 'behaviorRatings'), {
+        userId: selectedChild,
+        userName: child.displayName,
+        points: Number(points),
+        reason,
+        evaluatorId: profile.uid,
+        evaluatorName: profile.displayName,
+        createdAt: serverTimestamp()
+      });
+
+      // Update child points
+      const childRef = doc(db, 'users', selectedChild);
+      const newPoints = (child.points || 0) + Number(points);
+      const newTotal = (child.totalPointsEarned || 0) + (points > 0 ? Number(points) : 0);
+      
+      await updateDoc(childRef, { 
+        points: Math.max(0, newPoints),
+        totalPointsEarned: newTotal
+      });
+
+      // Notify Child
+      const statusIcon = points > 0 ? '🌟' : '⚠️';
+      const statusMsg = points > 0 
+        ? `أحسنت! حصلت على ${points} نقطة لسلوكك: ${reason}` 
+        : `تم خصم ${Math.abs(points)} نقطة بسبب: ${reason}`;
+      
+      await sendNotification(selectedChild, `تقييم السلوك ${statusIcon}`, statusMsg, points > 0 ? 'success' : 'warning');
+
+      setSelectedChild('');
+      setPoints(0);
+      setReason('');
+      alert('تم تسجيل التقييم بنجاح');
+    } catch (err) {
+      console.error(err);
+      alert('حدث خطأ أثناء حفظ التقييم');
+    }
+  };
+
+  return (
+    <div className="pb-24 bg-summer-bg min-h-screen">
+      <Header title="تقييم السلوك" profile={profile} />
+      <div className="px-6 mt-6 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        {isParent && (
+          <section className="bg-summer-card p-6 rounded-3xl border border-white/40 shadow-xl space-y-4">
+            <div className="flex items-center gap-2 mb-2">
+               <TrendingUp className="text-summer-accent" size={20} />
+               <h3 className="font-bold text-summer-text">تسجيل تقييم جديد</h3>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-summer-text/40 uppercase tracking-widest px-1">عضو العائلة</label>
+                <select 
+                  className="w-full bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-summer-text outline-none focus:border-summer-accent appearance-none transition-all"
+                  value={selectedChild}
+                  onChange={(e) => setSelectedChild(e.target.value)}
+                >
+                  <option value="" className="bg-summer-card">اختر الشخص...</option>
+                  {family.filter(f => f.role === 'child').map(f => (
+                    <option key={f.uid} value={f.uid} className="bg-summer-card">{f.displayName}</option>
+                  ))}
+                </select>
+              </div>
+              
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-summer-text/40 uppercase tracking-widest px-1">نوع التأثير</label>
+                <div className="grid grid-cols-2 gap-4">
+                  <button 
+                    onClick={() => setPoints(10)} 
+                    className={cn(
+                      "py-4 rounded-2xl font-black text-xs transition-all border flex items-center justify-center gap-2", 
+                      points === 10 ? "bg-emerald-500 text-white border-emerald-500 shadow-lg" : "bg-white/10 text-emerald-500 border-emerald-500/20"
+                    )}
+                  >
+                    <Smile size={14} />
+                    مكافأة (+10)
+                  </button>
+                  <button 
+                    onClick={() => setPoints(-10)} 
+                    className={cn(
+                      "py-4 rounded-2xl font-black text-xs transition-all border flex items-center justify-center gap-2", 
+                      points === -10 ? "bg-red-500 text-white border-red-500 shadow-lg" : "bg-white/10 text-red-500 border-red-500/20"
+                    )}
+                  >
+                    <Frown size={14} />
+                    خصم (-10)
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-summer-text/40 uppercase tracking-widest px-1">النقاط (مخصص)</label>
+                <input 
+                  type="number"
+                  placeholder="مثلاً: 15 أو -15"
+                  className="w-full bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-summer-text outline-none focus:border-summer-accent"
+                  value={points}
+                  onChange={(e) => setPoints(Number(e.target.value))}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-summer-text/40 uppercase tracking-widest px-1">السبب</label>
+                <textarea 
+                  placeholder="لماذا هذا التقييم؟ (مثلاً: الالتزام بالصلاة، ترتيب الغرفة، أو تأخر في النوم)"
+                  className="w-full bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-xs text-summer-text outline-none focus:border-summer-accent h-32 resize-none"
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                />
+              </div>
+
+              <button 
+                onClick={submitRating}
+                className="w-full summer-gradient text-white py-5 rounded-2xl font-black text-lg shadow-xl active:scale-95 transition-all"
+              >
+                اعتماد التقييم وتحديث الرصيد
+              </button>
+            </div>
+          </section>
+        )}
+
+        <section className="space-y-4 pb-12">
+          <div className="flex justify-between items-center px-1">
+            <h3 className="text-sm font-bold text-summer-text/40 uppercase tracking-widest">تاريخ السلوكيات 📜</h3>
+            <span className="text-[10px] font-black text-summer-accent bg-summer-accent/10 px-2 py-1 rounded-lg">الأسبوع الحالي</span>
+          </div>
+          
+          <div className="space-y-4">
+            {ratings.map(r => (
+              <div key={r.id} className="bg-summer-card p-5 rounded-3xl border border-white/20 shadow-lg flex justify-between items-start group hover:border-summer-accent/30 transition-all">
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-summer-primary/10 flex items-center justify-center text-xs font-black text-summer-primary">
+                      {r.userName.charAt(0)}
+                    </div>
+                    <div>
+                      <p className="text-sm font-black text-summer-text leading-none">{r.userName}</p>
+                      <p className="text-[9px] text-summer-text/30 mt-1">بواسطة: {r.evaluatorName}</p>
+                    </div>
+                  </div>
+                  <div className="bg-white/10 p-3 rounded-2xl border border-white/5">
+                    <p className="text-xs text-summer-text leading-relaxed italic">"{r.reason}"</p>
+                  </div>
+                  <p className="text-[8px] text-summer-text/20 font-bold uppercase tracking-widest">{r.createdAt?.toDate?.()?.toLocaleDateString('ar-SA')}</p>
+                </div>
+                
+                <div className="flex flex-col items-center gap-2">
+                   <div className={cn(
+                     "w-12 h-12 rounded-2xl flex items-center justify-center shadow-inner", 
+                     r.points > 0 ? "bg-emerald-500/10 text-emerald-500" : "bg-red-500/10 text-red-500"
+                   )}>
+                     {r.points > 0 ? <Smile size={24} /> : <Frown size={24} />}
+                   </div>
+                   <span className={cn(
+                     "text-lg font-black", 
+                     r.points > 0 ? "text-emerald-500" : "text-red-500"
+                   )}>
+                     {r.points > 0 ? `+${r.points}` : r.points}
+                   </span>
+                </div>
+              </div>
+            ))}
+            {ratings.length === 0 && (
+              <div className="text-center py-12 bg-white/10 rounded-3xl border border-dashed border-white/20">
+                <Meh size={48} className="mx-auto text-summer-text/10 mb-4" />
+                <p className="text-xs text-summer-text/30 font-bold">لا توجد تقييمات مسجلة بعد. ابدأ بتقييم سلوك أطفالك!</p>
+              </div>
+            )}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+};
+
+const MotivationPage = ({ profile }: { profile: UserProfile }) => {
+  const [motivations, setMotivations] = useState<Motivation[]>([]);
+  const [templates, setTemplates] = useState<MotivationTemplate[]>([]);
+  const [family, setFamily] = useState<UserProfile[]>([]);
+  const [selectedChild, setSelectedChild] = useState('');
+  const [customMsg, setCustomMsg] = useState('');
+  const [showAddTemplate, setShowAddTemplate] = useState(false);
+  const [newTemplateMsg, setNewTemplateMsg] = useState('');
+  const isParent = profile.role === 'parent';
+
+  useEffect(() => {
+    const qMotivations = query(collection(db, 'motivations'), orderBy('createdAt', 'desc'), limit(50));
+    const unsubscribeMotivations = onSnapshot(qMotivations, (snapshot) => {
+      setMotivations(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Motivation)));
+    }, (err) => handleFirestoreError(err, OperationType.LIST, 'motivations'));
+
+    const unsubscribeTemplates = onSnapshot(collection(db, 'motivationTemplates'), (snapshot) => {
+      setTemplates(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as MotivationTemplate)));
+    });
+
+    const unsubscribeFamily = onSnapshot(query(collection(db, 'users'), where('role', '==', 'child')), (snapshot) => {
+      setFamily(snapshot.docs.map(doc => doc.data() as UserProfile));
+    });
+
+    return () => {
+      unsubscribeMotivations();
+      unsubscribeTemplates();
+      unsubscribeFamily();
+    };
+  }, []);
+
+  const sendMotivation = async (msg: string) => {
+    if (!selectedChild || !msg) {
+      alert('يرجى اختيار العضو وكتابة الرسالة');
+      return;
+    }
+    const child = family.find(f => f.uid === selectedChild);
+    if (!child) return;
+
+    try {
+      await addDoc(collection(db, 'motivations'), {
+        senderId: profile.uid,
+        senderName: profile.displayName,
+        receiverId: selectedChild,
+        userName: child.displayName,
+        message: msg,
+        icon: 'Sparkles',
+        createdAt: serverTimestamp()
+      });
+
+      await sendNotification(selectedChild, 'رسالة محفزة! ✨', `لديك رسالة إيجابية من ${profile.displayName}: ${msg}`, 'motivation');
+      
+      setCustomMsg('');
+      alert('تم إرسال المحفز بنجاح! 🌟');
+    } catch (err) {
+      console.error(err);
+      alert('فشل في إرسال المحفز');
+    }
+  };
+
+  const addTemplate = async () => {
+    if (!newTemplateMsg) return;
+    await addDoc(collection(db, 'motivationTemplates'), {
+      content: newTemplateMsg,
+      category: 'عام',
+      createdAt: serverTimestamp()
+    });
+    setNewTemplateMsg('');
+    setShowAddTemplate(false);
+  };
+
+  const deleteTemplate = async (id: string) => {
+    if (confirm('هل تريد حذف هذا القالب؟')) {
+      await deleteDoc(doc(db, 'motivationTemplates', id));
+    }
+  };
+
+  const defaultTemplates = [
+    "أنت مبدع ورائع اليوم! 🌟",
+    "فخور جداً بالتزامك بالمهام 👏",
+    "روحك الإيجابية تنور البيت ✨",
+    "استمر في هذا الإبداع، أنت بطل! 💪",
+    "شكراً لكونك شخصاً يساعد الجميع ❤️"
+  ];
+
+  return (
+    <div className="pb-24 bg-summer-bg min-h-screen">
+      <Header title="المحفز الذكي" profile={profile} />
+      <div className="px-6 mt-6 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        
+        {isParent && (
+          <section className="bg-summer-card p-6 rounded-3xl border border-white/40 shadow-xl space-y-6">
+            <div className="flex items-center gap-2">
+               <Zap className="text-summer-accent" size={20} />
+               <h3 className="font-bold text-summer-text">إرسال محفز عائلي</h3>
+            </div>
+
+            <div className="space-y-4">
+               <div>
+                  <label className="text-[10px] font-black text-summer-text/40 uppercase tracking-widest px-1">لمن الرسالة؟</label>
+                  <div className="flex gap-2 mt-2 overflow-x-auto pb-2 scrollbar-none">
+                    {family.map(child => (
+                      <button 
+                        key={child.uid}
+                        onClick={() => setSelectedChild(child.uid)}
+                        className={cn(
+                          "px-4 py-3 rounded-2xl text-xs font-black transition-all border shrink-0",
+                          selectedChild === child.uid ? "bg-summer-accent text-white border-summer-accent shadow-lg" : "bg-white/10 text-summer-text border-white/10"
+                        )}
+                      >
+                        {child.displayName}
+                      </button>
+                    ))}
+                  </div>
+               </div>
+
+               <div>
+                 <label className="text-[10px] font-black text-summer-text/40 uppercase tracking-widest px-1">اختر رسالة جاهزة</label>
+                 <div className="grid grid-cols-1 gap-2 mt-2">
+                    {templates.length > 0 ? templates.map(t => (
+                      <div key={t.id} className="flex gap-2">
+                        <button 
+                          onClick={() => sendMotivation(t.content)}
+                          className="flex-1 text-right bg-white/10 border border-white/10 p-4 rounded-xl text-xs text-summer-text hover:bg-summer-accent/10 hover:border-summer-accent transition-all"
+                        >
+                          {t.content}
+                        </button>
+                        <button onClick={() => deleteTemplate(t.id)} className="p-2 text-red-400 hover:text-red-600">
+                          <X size={16} />
+                        </button>
+                      </div>
+                    )) : defaultTemplates.map((msg, i) => (
+                      <button 
+                        key={i}
+                        onClick={() => sendMotivation(msg)}
+                        className="text-right bg-white/10 border border-white/10 p-4 rounded-xl text-xs text-summer-text hover:bg-summer-accent/10 hover:border-summer-accent transition-all"
+                      >
+                        {msg}
+                      </button>
+                    ))}
+                 </div>
+               </div>
+
+               <div className="space-y-2">
+                  <label className="text-[10px] font-black text-summer-text/40 uppercase tracking-widest px-1">أو اكتب رسالة مخصصة</label>
+                  <div className="flex gap-2">
+                    <input 
+                      placeholder="رسالة إيجابية من قلبك..."
+                      className="flex-1 bg-white/10 border border-white/10 rounded-2xl px-5 py-4 text-xs text-summer-text outline-none focus:border-summer-accent"
+                      value={customMsg}
+                      onChange={(e) => setCustomMsg(e.target.value)}
+                    />
+                    <button 
+                      onClick={() => sendMotivation(customMsg)}
+                      className="bg-summer-accent text-white px-6 rounded-2xl shadow-lg active:scale-95 transition-all"
+                    >
+                      <Zap size={18} />
+                    </button>
+                  </div>
+               </div>
+
+               <button 
+                 onClick={() => setShowAddTemplate(!showAddTemplate)}
+                 className="text-[10px] font-bold text-summer-accent underline"
+               >
+                 {showAddTemplate ? 'إلغاء' : 'إضافة رسالة للقائمة الجاهزة +'}
+               </button>
+
+               {showAddTemplate && (
+                 <div className="flex gap-2 animate-in fade-in duration-300">
+                    <input 
+                      placeholder="أضف رسالة جديدة للجوال..."
+                      className="flex-1 bg-white/20 border border-dashed border-white/40 rounded-xl px-4 py-2 text-xs text-summer-text outline-none"
+                      value={newTemplateMsg}
+                      onChange={(e) => setNewTemplateMsg(e.target.value)}
+                    />
+                    <button onClick={addTemplate} className="bg-summer-text text-white px-4 rounded-xl text-xs font-bold">حفظ</button>
+                 </div>
+               )}
+            </div>
+          </section>
+        )}
+
+        <section className="space-y-4 pb-12">
+           <h3 className="text-sm font-bold text-summer-text/40 uppercase tracking-widest px-1">سجل الإيجابية 💎</h3>
+           <div className="space-y-4">
+              {motivations.map(m => (
+                <motion.div 
+                  key={m.id}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="bg-summer-card p-5 rounded-3xl border border-white/20 shadow-lg flex items-start gap-4"
+                >
+                  <div className="w-12 h-12 rounded-2xl bg-summer-accent/10 flex items-center justify-center text-summer-accent shrink-0">
+                    <Sparkles size={24} className="animate-pulse" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex justify-between items-start mb-2">
+                       <div>
+                         <p className="text-xs font-black text-summer-text">{m.userName}</p>
+                         <p className="text-[9px] text-summer-text/30">من: {m.senderName}</p>
+                       </div>
+                       <span className="text-[8px] text-summer-text/20 font-bold">{m.createdAt?.toDate?.()?.toLocaleTimeString('ar-SA')}</span>
+                    </div>
+                    <div className="bg-white/10 p-4 rounded-2xl border border-white/5">
+                       <p className="text-sm font-bold text-summer-text leading-relaxed">"{m.message}"</p>
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+              {motivations.length === 0 && (
+                <div className="text-center py-12 bg-white/10 rounded-3xl border border-dashed border-white/20">
+                  <Heart size={48} className="mx-auto text-summer-text/10 mb-4" />
+                  <p className="text-xs text-summer-text/30 font-bold text-center">لا توجد رسائل محفزة بعد. انشر الإيجابية اليوم!</p>
+                </div>
+              )}
+           </div>
+        </section>
+      </div>
+    </div>
+  );
+};
+
 export default function App() {
   const { user, profile, loading } = useAuth();
 
@@ -2492,6 +3126,8 @@ export default function App() {
             <Route path="/chat" element={<ChatPage profile={profile} />} />
             <Route path="/wallet" element={<WalletPage profile={profile} />} />
             <Route path="/shop" element={<ShopPage profile={profile} />} />
+            <Route path="/behavior" element={<BehaviorRatingPage profile={profile} />} />
+            <Route path="/motivation" element={<MotivationPage profile={profile} />} />
             <Route path="/settings" element={<SettingsPage profile={profile} />} />
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>

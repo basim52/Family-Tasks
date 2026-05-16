@@ -138,6 +138,64 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["hostId", "type", "status", "createdAt"]
+    },
+    "BehaviorRating": {
+      "title": "Behavior Rating",
+      "description": "Weekly assessment of child behavior",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "points": { "type": "number", "description": "Positive for plus, negative for minusPoints" },
+        "reason": { "type": "string" },
+        "evaluatorId": { "type": "string" },
+        "evaluatorName": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "points", "reason", "evaluatorId", "createdAt"]
+    },
+    "Motivation": {
+      "title": "Motivation",
+      "description": "Positive messages to family members",
+      "type": "object",
+      "properties": {
+        "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "receiverId": { "type": "string" },
+        "userName": { "type": "string" },
+        "message": { "type": "string" },
+        "icon": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["senderId", "receiverId", "message", "createdAt"]
+    },
+    "MotivationTemplate": {
+      "title": "Motivation Template",
+      "description": "Predefined motivation messages",
+      "type": "object",
+      "properties": {
+        "content": { "type": "string" },
+        "category": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["content"]
+    },
+    "Cheque": {
+      "title": "Cheque",
+      "description": "Financial document for cash redemption",
+      "type": "object",
+      "properties": {
+        "transactionId": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "amount": { "type": "number" },
+        "currency": { "type": "string" },
+        "issuedAt": { "type": "string", "format": "date-time" },
+        "issuedBy": { "type": "string" },
+        "issuedByName": { "type": "string" },
+        "serialNumber": { "type": "string" }
+      },
+      "required": ["transactionId", "userId", "amount", "issuedAt", "serialNumber"]
     }
   },
   "firestore": {
@@ -180,6 +238,22 @@
     "calls": {
       "schema": "Call",
       "description": "Family calls"
+    },
+    "behaviorRatings": {
+      "schema": "BehaviorRating",
+      "description": "Weekly behavioral points"
+    },
+    "motivations": {
+      "schema": "Motivation",
+      "description": "Positive message history"
+    },
+    "motivationTemplates": {
+      "schema": "MotivationTemplate",
+      "description": "Ready-made message templates"
+    },
+    "cheques": {
+      "schema": "Cheque",
+      "description": "Financial cheques for points redemption"
     }
   }
 }

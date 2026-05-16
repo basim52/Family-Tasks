@@ -110,3 +110,45 @@ export interface Call {
   participants: string[];
   createdAt: any;
 }
+
+export interface BehaviorRating {
+  id: string;
+  userId: string;
+  userName: string;
+  points: number;
+  reason: string;
+  evaluatorId: string;
+  evaluatorName: string;
+  createdAt: any;
+}
+
+export interface Motivation {
+  id: string;
+  senderId: string;
+  senderName: string;
+  receiverId: string;
+  userName: string;
+  message: string;
+  icon: string;
+  createdAt: any;
+}
+
+export interface MotivationTemplate {
+  id: string;
+  content: string;
+  category: string;
+  createdAt: any;
+}
+
+export interface Cheque {
+  id: string;
+  transactionId: string;
+  userId: string;
+  userName: string;
+  amount: number;
+  currency: string;
+  issuedAt: any;
+  issuedBy: string;
+  issuedByName: string;
+  serialNumber: string;
+}

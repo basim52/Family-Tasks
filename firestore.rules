@@ -109,6 +109,36 @@ service cloud.firestore {
         && data.createdAt == request.time;
     }
 
+    function isValidBehaviorRating(data) {
+      return data.keys().hasAll(['userId', 'points', 'reason', 'evaluatorId', 'createdAt'])
+        && data.evaluatorId == request.auth.uid
+        && data.userId is string
+        && data.points is number
+        && data.reason is string && data.reason.size() <= 1000
+        && data.createdAt == request.time;
+    }
+
+    function isValidMotivation(data) {
+      return data.keys().hasAll(['senderId', 'receiverId', 'message', 'createdAt'])
+        && data.senderId == request.auth.uid
+        && data.receiverId is string
+        && data.message is string && data.message.size() <= 1000
+        && data.createdAt == request.time;
+    }
+
+    function isValidMotivationTemplate(data) {
+      return data.keys().hasAll(['content'])
+        && data.content is string && data.content.size() <= 1000;
+    }
+
+    function isValidCheque(data) {
+      return data.keys().hasAll(['transactionId', 'userId', 'amount', 'issuedAt', 'serialNumber'])
+        && data.transactionId is string
+        && data.userId is string
+        && data.amount is number
+        && data.issuedAt == request.time;
+    }
+
     // Collection Rules
 
     match /users/{userId} {
@@ -191,6 +221,29 @@ service cloud.firestore {
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['participants', 'status'])
       );
       allow delete: if isSignedIn() && resource.data.hostId == request.auth.uid;
+    }
+
+    match /behaviorRatings/{ratingId} {
+      allow get, list: if isSignedIn();
+      allow create: if isParent() && isValidBehaviorRating(request.resource.data);
+      allow delete: if isParent();
+    }
+
+    match /motivations/{motivationId} {
+      allow get, list: if isSignedIn();
+      allow create: if isParent() && isValidMotivation(request.resource.data);
+      allow delete: if isParent();
+    }
+
+    match /motivationTemplates/{templateId} {
+      allow get, list: if isSignedIn();
+      allow create, update, delete: if isParent() && isValidMotivationTemplate(request.resource.data);
+    }
+
+    match /cheques/{chequeId} {
+      allow get, list: if isSignedIn();
+      allow create: if isParent() && isValidCheque(request.resource.data);
+      allow delete: if isParent();
     }
   }
 }
