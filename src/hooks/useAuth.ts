@@ -18,13 +18,14 @@ export function useAuth() {
         const docSnap = await getDoc(docRef);
 
         if (!docSnap.exists()) {
-          const isBasim = authUser.email === 'basim5252@gmail.com';
+          const isAdmin = authUser.email === 'basim5252@gmail.com' || authUser.email === 'Hayatalzaki@gmail.com';
+          const isMother = authUser.email === 'Hayatalzaki@gmail.com';
           const newProfile: UserProfile = {
             uid: authUser.uid,
-            displayName: authUser.displayName || 'User',
+            displayName: authUser.displayName || (isMother ? 'الأم' : 'مسؤول النظام'),
             email: authUser.email || '',
             photoURL: authUser.photoURL || '',
-            role: isBasim ? 'parent' : 'child', // Assign parent role if it's Basim
+            role: isAdmin ? 'parent' : 'child',
             points: 0,
             currencyBalance: 0,
             createdAt: serverTimestamp(),
