@@ -8,6 +8,8 @@ import {
   MessageCircle, 
   Wallet as WalletIcon, 
   User as UserIcon,
+  Users,
+  User,
   Video,
   Phone,
   Mic,
@@ -2693,11 +2695,113 @@ const SettingsPage = ({ profile }: { profile: UserProfile }) => {
           </button>
         </section>
 
-        <section className="bg-summer-card p-6 rounded-3xl border border-white/20 space-y-4 opacity-50 shadow-xl">
-           <h3 className="font-bold text-summer-text">إدارة أفراد العائلة</h3>
-           <p className="text-xs text-summer-text/40">قريباً: إضافة/حذف أفراد العائلة وتعديل صلاحياتهم</p>
+        <section className="bg-summer-card p-6 rounded-3xl border border-white/20 space-y-6 shadow-xl">
+           <h3 className="font-bold text-summer-text flex items-center gap-2">
+             <Users size={18} className="text-summer-accent" />
+             إدارة أفراد العائلة
+           </h3>
+           
+           <div className="space-y-4">
+             <FamilyMembersList currentUser={profile} />
+           </div>
         </section>
       </div>
+    </div>
+  );
+};
+
+const FamilyMembersList = ({ currentUser }: { currentUser: UserProfile }) => {
+  const [members, setMembers] = useState<UserProfile[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const q = query(collection(db, 'users'), orderBy('displayName', 'asc'));
+    return onSnapshot(q, (snapshot) => {
+      setMembers(snapshot.docs.map(doc => doc.data() as UserProfile));
+      setLoading(false);
+    });
+  }, []);
+
+  const toggleRole = async (member: UserProfile) => {
+    // Prevent self-demotion if the user is one of the hardcoded admins
+    const isAdminEmail = member.email === 'basim5252@gmail.com' || member.email === 'Hayatalzaki@gmail.com';
+    if (isAdminEmail && member.role === 'parent') {
+      alert('لا يمكن تغيير رتبة مسؤول النظام الأساسي');
+      return;
+    }
+
+    const newRole = member.role === 'parent' ? 'child' : 'parent';
+    const confirmMsg = newRole === 'parent' 
+      ? `هل تريد ترقية ${member.displayName} ليكون مسؤول نظام (أب/أم)؟ سيكون له كامل الصلاحيات.`
+      : `هل تريد تغيير رتبة ${member.displayName} إلى عضو عائلي (ابن/ابنة)؟`;
+
+    if (confirm(confirmMsg)) {
+      try {
+        await updateDoc(doc(db, 'users', member.uid), { role: newRole });
+      } catch (error) {
+        alert('فشل في تحديث الرتبة');
+      }
+    }
+  };
+
+  const deleteMember = async (member: UserProfile) => {
+    if (member.uid === currentUser.uid) {
+      alert('لا يمكنك حذف نفسك من النظام');
+      return;
+    }
+
+    const isAdminEmail = member.email === 'basim5252@gmail.com' || member.email === 'Hayatalzaki@gmail.com';
+    if (isAdminEmail) {
+      alert('لا يمكن حذف مسؤول النظام الأساسي');
+      return;
+    }
+
+    if (confirm(`تحذير: هل أنت متأكد من حذف ${member.displayName}؟ سيتم حذف حسابه وتصفير نقاطه.`)) {
+      try {
+        await deleteDoc(doc(db, 'users', member.uid));
+        alert('تم حذف العضو بنجاح');
+      } catch (error) {
+        alert('فشل في حذف العضو');
+      }
+    }
+  };
+
+  if (loading) return <div className="text-center py-8"><Loader2 className="animate-spin mx-auto text-summer-accent" /></div>;
+
+  return (
+    <div className="space-y-3">
+      {members.map(member => (
+        <div key={member.uid} className="bg-white/10 p-4 rounded-2xl flex items-center justify-between gap-4 border border-white/5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-summer-accent/20 flex items-center justify-center overflow-hidden border border-white/20">
+              {member.photoURL ? <img src={member.photoURL} alt="" className="w-full h-full object-cover" /> : <User size={20} className="text-summer-accent" />}
+            </div>
+            <div>
+              <p className="text-sm font-bold text-summer-text">{member.displayName}</p>
+              <p className="text-[10px] text-summer-text/40">{member.email}</p>
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={() => toggleRole(member)}
+              className={cn(
+                "px-3 py-1.5 rounded-lg text-[10px] font-black transition-all",
+                member.role === 'parent' ? "bg-summer-accent text-white" : "bg-white/10 text-summer-text/60"
+              )}
+            >
+              {member.role === 'parent' ? 'مسؤول (أب/أم)' : 'عضو (ابن/ابنة)'}
+            </button>
+            
+            <button 
+              onClick={() => deleteMember(member)}
+              className="p-2 bg-red-500/10 text-red-500 rounded-lg hover:bg-red-500/20 transition-all"
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
+        </div>
+      ))}
     </div>
   );
 };
