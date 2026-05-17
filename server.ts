@@ -18,13 +18,87 @@ async function startServer() {
     next();
   });
 
-  // Filter out AI routes
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok", env: process.env.NODE_ENV, time: new Date().toISOString() });
   });
 
-  app.use("/api/ai", (req, res) => {
-    res.status(410).json({ error: "AI services have been disabled." });
+  // Gemini AI Routes
+  app.post("/api/ai", async (req, res) => {
+    try {
+      const { prompt, context, systemInstruction } = req.body;
+      const key = process.env.GEMINI_API_KEY;
+
+      if (!key || key === 'MY_GEMINI_API_KEY' || key.length < 10) {
+        return res.status(400).json({ 
+          error: "Gemini API key is not valid or not set. Please provide a valid key in the application settings (Settings > Secrets).",
+          code: "API_KEY_MISSING"
+        });
+      }
+
+      const { GoogleGenAI } = await import("@google/genai");
+      const ai = new GoogleGenAI({
+        apiKey: key,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          }
+        }
+      });
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: prompt,
+        config: {
+          systemInstruction: systemInstruction || "أنت مساعد عائلي ذكي وخبير في التربية الإيجابية وتحفيز الأطفال. تحدث بلهجة عربية ودودة ومشجعة.",
+        },
+      });
+
+      res.json({ response: response.text });
+    } catch (error: any) {
+      console.error("AI Error:", error);
+      res.status(500).json({ error: error.message || "حدث خطأ في محرك الذكاء الاصطناعي" });
+    }
+  });
+
+  app.post("/api/ai/chat", async (req, res) => {
+    try {
+      const { message, history } = req.body;
+      const key = process.env.GEMINI_API_KEY;
+
+      if (!key || key === 'MY_GEMINI_API_KEY' || key.length < 10) {
+        return res.status(400).json({ 
+          error: "Gemini API key is missing. AI Chat disabled.",
+          code: "API_KEY_MISSING"
+        });
+      }
+
+      const { GoogleGenAI } = await import("@google/genai");
+      const ai = new GoogleGenAI({
+        apiKey: key,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          }
+        }
+      });
+      
+      const chat = ai.chats.create({
+        model: "gemini-3-flash-preview",
+        config: {
+          systemInstruction: "أنت مساعد عائلي ذكي. تحدث بلهجة عربية ودودة.",
+        },
+        history: (history || []).slice(-10).map((h: any) => ({
+          role: h.role,
+          parts: h.parts.map((p: any) => ({ text: p.text }))
+        })),
+      });
+
+      const result = await chat.sendMessage({ message });
+      res.json({ response: result.text });
+    } catch (error: any) {
+      console.error("AI Chat Error:", error);
+      res.status(500).json({ error: error.message });
+    }
   });
 
   app.use("/api", (req, res) => {

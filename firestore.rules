@@ -57,11 +57,17 @@ service cloud.firestore {
     }
 
     function isValidTransaction(data) {
-      return data.keys().hasAll(['userId', 'type', 'points', 'status'])
+      return data.keys().hasAll(['userId', 'type', 'status'])
         && data.userId == request.auth.uid
-        && data.type in ['earn', 'redeem', 'prize_purchase']
-        && data.points is number && data.points >= 0;
-        // status check handled in allows
+        && data.type in ['earn', 'redeem', 'prize_purchase', 'token_purchase']
+        && (data.keys().contains('points') ? (data.points is number && data.points >= 0) : true)
+        && (data.keys().contains('tokensSpent') ? (data.tokensSpent is number && data.tokensSpent >= 0) : true);
+    }
+
+    function isValidTokenProduct(data) {
+      return data.keys().hasAll(['name', 'price', 'image', 'stock', 'createdAt'])
+        && data.name is string && data.name.size() <= 200
+        && data.price is number && data.price >= 0;
     }
 
     function isValidMessage(data) {
@@ -147,7 +153,8 @@ service cloud.firestore {
       allow create: if isUser(userId) && isValidUser(request.resource.data);
       allow update: if (isUser(userId) && (
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL']) ||
-          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['points']) && request.resource.data.points < resource.data.points)
+          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['points']) && request.resource.data.points < resource.data.points) ||
+          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['tokensBalance']) && request.resource.data.tokensBalance < resource.data.get('tokensBalance', 0))
         ))
         || isParent();
     }
@@ -172,7 +179,7 @@ service cloud.firestore {
       allow get, list: if isSignedIn() && (resource.data.userId == request.auth.uid || isParent());
       allow create: if isSignedIn() && isValidTransaction(request.resource.data) && (
         request.resource.data.status == 'pending' ||
-        (isChild() && (request.resource.data.type == 'redeem' || request.resource.data.type == 'prize_purchase') && request.resource.data.status == 'approved')
+        (isChild() && (request.resource.data.type in ['redeem', 'prize_purchase', 'token_purchase']) && request.resource.data.status == 'approved')
       );
       allow update: if isParent();
     }
@@ -192,6 +199,13 @@ service cloud.firestore {
     match /prizes/{prizeId} {
       allow get, list: if isSignedIn();
       allow create: if isParent() && isValidPrize(request.resource.data);
+      allow update: if isParent();
+      allow delete: if isParent();
+    }
+
+    match /tokenStore/{productId} {
+      allow get, list: if isSignedIn();
+      allow create: if isParent() && isValidTokenProduct(request.resource.data);
       allow update: if isParent();
       allow delete: if isParent();
     }

@@ -26,6 +26,7 @@ import {
   CheckCircle2,
   Target,
   Trophy,
+  Gift,
   Award,
   Medal,
   Settings,
@@ -33,6 +34,7 @@ import {
   Heart,
   MessageSquare,
   Edit2,
+  Camera,
   X,
   Smile,
   Frown,
@@ -67,7 +69,7 @@ import {
   getDocs
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { Task, Message, UserProfile, Prize, TaskComment, BigGoal, MonthlyReward, Call, BehaviorRating, Motivation, MotivationTemplate, Cheque } from './types';
+import { Task, Message, UserProfile, Prize, StoreProduct, TaskComment, BigGoal, MonthlyReward, Call, BehaviorRating, Motivation, MotivationTemplate, Cheque } from './types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -459,11 +461,48 @@ const SuggestionsLibrary = ({ onSelectTask, onSelectGoal, onSelectMonthly }: {
   onSelectGoal?: (goal: any) => void,
   onSelectMonthly?: (reward: any) => void
 }) => {
+  const [aiLoading, setAiLoading] = useState(false);
+
+  const generateWithAI = async () => {
+    setAiLoading(true);
+    try {
+      const resp = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: "اقترح 3 مهام منزلية ذكية ومحفزة للأطفال، تتضمن عنوان المهمة وعدد النقاط المستحقة (بين 10-50). أرجع النتيجة بتنسيق JSON: { tasks: [{ title: string, points: number }] }",
+          systemInstruction: "أنت خبير تربوي. اقترح مهام إبداعية غير تقليدية."
+        })
+      });
+      const data = await resp.json();
+      const match = data.response.match(/\{[\s\S]*\}/);
+      if (match && onSelectTask) {
+        const parsed = JSON.parse(match[0]);
+        parsed.tasks.forEach((t: any) => onSelectTask(t));
+      }
+    } catch (err) {
+      console.error(err);
+      alert('عذراً، فشل في توليد المقترحات الذكية');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {onSelectTask && (
-        <div className="space-y-3">
-          <h4 className="text-[10px] font-black text-summer-accent uppercase tracking-widest px-1">مقترحات مهام ذكية 💡</h4>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between px-1">
+             <h4 className="text-[10px] font-black text-summer-accent uppercase tracking-widest">مقترحات مهام ذكية 💡</h4>
+             <button 
+               onClick={generateWithAI}
+               disabled={aiLoading}
+               className="text-[9px] font-black text-summer-primary flex items-center gap-1 hover:underline disabled:opacity-50"
+             >
+               {aiLoading ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />}
+               اقتراح بالذكاء الاصطناعي
+             </button>
+          </div>
           <div className="flex flex-wrap gap-2">
             {SUGGESTED_PLANS.tasks.map((task, i) => (
               <button 
@@ -1073,6 +1112,9 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
         {/* Family Mood Dashboard */}
         <FamilyPulse profile={profile} />
 
+        {/* Smart Advisor Section */}
+        <SmartAdvisor profile={profile} />
+
         {/* Notifications Prompt for Children */}
         {!isParent && typeof window !== 'undefined' && 'Notification' in window && window.Notification.permission !== 'granted' && (
            <motion.section 
@@ -1424,7 +1466,8 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [newTitle, setNewTitle] = useState('');
-  const [newPoints, setNewPoints] = useState(10);
+  const [newRewardType, setNewRewardType] = useState<'points' | 'tokens'>('points');
+  const [newRewardAmount, setNewRewardAmount] = useState(10);
   const [newAssigned, setNewAssigned] = useState('');
   const [newStartTime, setNewStartTime] = useState('');
   const [newEndTime, setNewEndTime] = useState('');
@@ -1432,7 +1475,8 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
   const isParent = profile.role === 'parent';
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [editTitle, setEditTitle] = useState('');
-  const [editPoints, setEditPoints] = useState(10);
+  const [editRewardType, setEditRewardType] = useState<'points' | 'tokens'>('points');
+  const [editRewardAmount, setEditRewardAmount] = useState(10);
   const [editAssigned, setEditAssigned] = useState('');
   const [editStartTime, setEditStartTime] = useState('');
   const [editEndTime, setEditEndTime] = useState('');
@@ -1474,7 +1518,9 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
       await addDoc(collection(db, 'tasks'), {
         title: newTitle,
         description: 'مهمة عائلية من الأهل',
-        points: Number(newPoints),
+        points: Number(newRewardAmount), // For backward compatibility
+        rewardType: newRewardType,
+        rewardAmount: Number(newRewardAmount),
         status: 'pending',
         assignedTo: newAssigned,
         assignedToName: assignedUser?.displayName || 'الجميع',
@@ -1486,7 +1532,7 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
 
       // Notify Child
       if (newAssigned) {
-        await sendNotification(newAssigned, 'مهمة جديدة! 🚀', `لقد تم تكليفك بمهمة: ${newTitle}${newStartTime ? ` (تبدأ ${newStartTime})` : ''}`, 'task');
+        await sendNotification(newAssigned, 'مهمة جديدة! 🚀', `لقد تم تكليفك بمهمة: ${newTitle} والمكافأة ${newRewardAmount} ${newRewardType === 'points' ? 'نقطة' : 'توكن'} ✨`, 'task');
       }
 
       setNewTitle('');
@@ -1505,7 +1551,9 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
     
     await updateDoc(doc(db, 'tasks', editingTask.id), {
       title: editTitle,
-      points: Number(editPoints),
+      points: Number(editRewardAmount),
+      rewardType: editRewardType,
+      rewardAmount: Number(editRewardAmount),
       assignedTo: editAssigned,
       assignedToName: assignedUser?.displayName || 'الجميع',
       startTime: editStartTime || null,
@@ -1523,7 +1571,8 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
   const startEdit = (task: Task) => {
     setEditingTask(task);
     setEditTitle(task.title);
-    setEditPoints(task.points);
+    setEditRewardAmount(task.rewardAmount || task.points || 10);
+    setEditRewardType(task.rewardType || 'points');
     setEditAssigned(task.assignedTo);
     setEditStartTime(task.startTime || '');
     setEditEndTime(task.endTime || '');
@@ -1537,19 +1586,30 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
       approvedAt: serverTimestamp()
     });
     
-    // 2. Add Points to Child
+    // 2. Award Reward to Child
     const userRef = doc(db, 'users', task.assignedTo);
     const userSnap = await getDoc(userRef);
     if (userSnap.exists()) {
-      const currentPoints = userSnap.data().points || 0;
-      const totalPoints = userSnap.data().totalPointsEarned || 0;
-      await updateDoc(userRef, { 
-        points: currentPoints + task.points,
-        totalPointsEarned: totalPoints + task.points
-      });
+      const userData = userSnap.data();
+      const rewardType = task.rewardType || 'points';
+      const rewardAmount = task.rewardAmount || task.points || 0;
+
+      if (rewardType === 'points') {
+        const currentPoints = userData.points || 0;
+        const totalPoints = userData.totalPointsEarned || 0;
+        await updateDoc(userRef, { 
+          points: currentPoints + rewardAmount,
+          totalPointsEarned: totalPoints + rewardAmount
+        });
+      } else {
+        const currentTokens = userData.tokensBalance || 0;
+        await updateDoc(userRef, { 
+          tokensBalance: currentTokens + rewardAmount
+        });
+      }
       
       // Notify Child
-      await sendNotification(task.assignedTo, 'مبروك! 🏆', `تمت الموافقة على مهمة "${task.title}" وحصلت على ${task.points} نقطة`, 'success');
+      await sendNotification(task.assignedTo, 'مبروك! 🏆', `تمت الموافقة على مهمة "${task.title}" وحصلت على ${rewardAmount} ${rewardType === 'points' ? 'نقطة' : 'توكن'}!`, 'success');
     }
   };
 
@@ -1638,24 +1698,44 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
                   onChange={(e) => setNewTitle(e.target.value)}
                 />
                 <div className="flex gap-4">
+                  <div className="flex-1 bg-white/20 border border-white/20 rounded-2xl p-1 flex">
+                    <button 
+                      onClick={() => setNewRewardType('points')}
+                      className={cn(
+                        "flex-1 py-3 rounded-xl text-[10px] font-black transition-all",
+                        newRewardType === 'points' ? "bg-summer-accent text-white shadow-md" : "text-summer-text/40"
+                      )}
+                    >
+                      نقاط عادية
+                    </button>
+                    <button 
+                      onClick={() => setNewRewardType('tokens')}
+                      className={cn(
+                        "flex-1 py-3 rounded-xl text-[10px] font-black transition-all",
+                        newRewardType === 'tokens' ? "bg-amber-500 text-white shadow-md" : "text-summer-text/40"
+                      )}
+                    >
+                      توكن نادرة
+                    </button>
+                  </div>
                   <input 
                     type="number"
-                    placeholder="النقاط"
+                    placeholder="الكمية"
                     className="w-1/3 bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-summer-text outline-none focus:border-summer-accent placeholder:text-summer-text/30"
-                    value={newPoints}
-                    onChange={(e) => setNewPoints(Number(e.target.value))}
+                    value={newRewardAmount}
+                    onChange={(e) => setNewRewardAmount(Number(e.target.value))}
                   />
-                  <select 
-                    className="w-2/3 bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-summer-text outline-none focus:border-summer-accent appearance-none placeholder:text-summer-text/30"
-                    value={newAssigned}
-                    onChange={(e) => setNewAssigned(e.target.value)}
-                  >
-                    <option value="" className="bg-summer-card text-summer-text">تعيين إلى...</option>
-                    {family.filter(f => f.role === 'child').map(f => (
-                      <option key={f.uid} value={f.uid} className="bg-summer-card text-summer-text">{f.displayName}</option>
-                    ))}
-                  </select>
                 </div>
+                <select 
+                  className="w-full bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-summer-text outline-none focus:border-summer-accent appearance-none placeholder:text-summer-text/30"
+                  value={newAssigned}
+                  onChange={(e) => setNewAssigned(e.target.value)}
+                >
+                  <option value="" className="bg-summer-card text-summer-text">تعيين إلى...</option>
+                  {family.filter(f => f.role === 'child').map(f => (
+                    <option key={f.uid} value={f.uid} className="bg-summer-card text-summer-text">{f.displayName}</option>
+                  ))}
+                </select>
                 
                 <div className="flex gap-4">
                   <div className="flex-1">
@@ -1681,7 +1761,7 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
                 <div className="pt-2">
                   <SuggestionsLibrary onSelectTask={(task) => {
                     setNewTitle(task.title);
-                    setNewPoints(task.points);
+                    setNewRewardAmount(task.points);
                   }} />
                 </div>
 
@@ -1718,15 +1798,35 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
                   onChange={(e) => setEditTitle(e.target.value)}
                 />
                 <div className="flex gap-4">
+                  <div className="flex-1 bg-white/20 border border-white/20 rounded-2xl p-1 flex">
+                    <button 
+                      onClick={() => setEditRewardType('points')}
+                      className={cn(
+                        "flex-1 py-3 rounded-xl text-[10px] font-black transition-all",
+                        editRewardType === 'points' ? "bg-summer-accent text-white shadow-md" : "text-summer-text/40"
+                      )}
+                    >
+                      نقاط
+                    </button>
+                    <button 
+                      onClick={() => setEditRewardType('tokens')}
+                      className={cn(
+                        "flex-1 py-3 rounded-xl text-[10px] font-black transition-all",
+                        editRewardType === 'tokens' ? "bg-amber-500 text-white shadow-md" : "text-summer-text/40"
+                      )}
+                    >
+                      توكن
+                    </button>
+                  </div>
                   <input 
                     type="number"
-                    placeholder="النقاط"
+                    placeholder="الكمية"
                     className="w-1/3 bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-summer-text outline-none focus:border-summer-accent placeholder:text-summer-text/30"
-                    value={editPoints}
-                    onChange={(e) => setEditPoints(Number(e.target.value))}
+                    value={editRewardAmount}
+                    onChange={(e) => setEditRewardAmount(Number(e.target.value))}
                   />
                   <select 
-                    className="w-2/3 bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-summer-text outline-none focus:border-summer-accent appearance-none placeholder:text-summer-text/30"
+                    className="w-1/3 bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-summer-text outline-none focus:border-summer-accent appearance-none placeholder:text-summer-text/30"
                     value={editAssigned}
                     onChange={(e) => setEditAssigned(e.target.value)}
                   >
@@ -1798,8 +1898,12 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
                     </div>
                   )}
                 </div>
-                <div className="bg-summer-accent text-white px-4 py-2 rounded-xl font-black shadow-lg">
-                  {task.points} ن
+                <div className={cn(
+                  "px-4 py-2 rounded-xl font-black shadow-lg flex flex-col items-center justify-center min-w-[70px]",
+                  (task.rewardType || 'points') === 'tokens' ? "bg-amber-500 text-white" : "bg-summer-accent text-white"
+                )}>
+                  <span className="text-sm">{task.rewardAmount || task.points}</span>
+                  <span className="text-[7px] uppercase tracking-tighter">{(task.rewardType || 'points') === 'tokens' ? 'توكن' : 'نقطة'}</span>
                 </div>
                 {isParent && (
                   <button 
@@ -1902,7 +2006,13 @@ const ChatPage = ({ profile }: { profile: UserProfile }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMsg, setNewMsg] = useState('');
   const [showCall, setShowCall] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const sendingLock = useRef(false);
+  const lastSentRef = useRef<{content: string, time: number} | null>(null);
   const [callType, setCallType] = useState<'video' | 'voice'>('video');
+  const [showSummary, setShowSummary] = useState(false);
+  const [aiSummary, setAiSummary] = useState('');
+  const [summarizing, setSummarizing] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
@@ -1915,25 +2025,26 @@ const ChatPage = ({ profile }: { profile: UserProfile }) => {
 
   useEffect(() => {
     const q = query(collection(db, 'calls'), where('status', '==', 'active'));
-    return onSnapshot(q, (snapshot) => {
+    const unsubscribe = onSnapshot(q, (snapshot) => {
       const calls = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Call));
       setActiveCalls(calls);
       
-      // If we are in a call that just ended, close UI
       if (currentCall && !calls.find(c => c.id === currentCall.id)) {
         setShowCall(false);
         setCurrentCall(null);
       }
     });
+    return () => unsubscribe();
   }, [currentCall]);
 
   useEffect(() => {
     const q = query(collection(db, 'messages'), orderBy('createdAt', 'desc'), limit(50));
-    return onSnapshot(q, (snapshot) => {
+    const unsubscribe = onSnapshot(q, (snapshot) => {
       setMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message)).reverse());
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'messages');
     });
+    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -2047,16 +2158,100 @@ const ChatPage = ({ profile }: { profile: UserProfile }) => {
     }
   };
 
-  const sendMsg = async () => {
-    if (!newMsg.trim()) return;
-    await addDoc(collection(db, 'messages'), {
-      senderId: profile.uid,
-      senderName: profile.displayName,
-      content: newMsg,
-      type: 'text',
-      createdAt: serverTimestamp(),
-    });
-    setNewMsg('');
+  const sendMsg = async (e?: React.FormEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    
+    const msgContent = newMsg.trim();
+    if (!msgContent || isSending || sendingLock.current) return;
+    
+    // Strict multi-trigger prevention (4x sends issue)
+    if (lastSentRef.current && 
+        lastSentRef.current.content === msgContent && 
+        Date.now() - lastSentRef.current.time < 2000) { // Increased to 2s
+      return;
+    }
+    lastSentRef.current = { content: msgContent, time: Date.now() };
+
+    sendingLock.current = true;
+    setIsSending(true);
+    try {
+      setNewMsg(''); // Clear immediately for UI responsiveness
+
+      await addDoc(collection(db, 'messages'), {
+        senderId: profile.uid,
+        senderName: profile.displayName,
+        content: msgContent,
+        type: 'text',
+        createdAt: serverTimestamp(),
+      });
+      
+      // Auto-reply logic if it mentions "smart" or "bot"
+      if (msgContent.toLowerCase().includes('يا ذكي') || msgContent.toLowerCase().includes('بوت') || msgContent.toLowerCase().includes('smart')) {
+        await handleAIReply(msgContent);
+      }
+
+    } catch (error) {
+      console.error("Error sending message:", error);
+      // alert("فشل في إرسال الرسالة"); // Silent fail preferred during chat
+    } finally {
+      setTimeout(() => {
+        setIsSending(false);
+        sendingLock.current = false;
+      }, 500); // Small cooldown before allowing next send
+    }
+  };
+
+  const summarizeChat = async () => {
+    if (messages.length < 3 || summarizing) return;
+    setSummarizing(true);
+    setShowSummary(true);
+    try {
+      const chatContext = messages.slice(-20).map(m => `${m.senderName}: ${m.content}`).join('\n');
+      const resp = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: "لخّص آخر المحادثات العائلية باختصار شديد وودود (بحدود 30 كلمة). أبرز أهم النقاط أو القرارات.",
+          context: { chat: chatContext }
+        })
+      });
+      const data = await resp.json();
+      setAiSummary(data.response);
+    } catch (err) {
+      setAiSummary('فشل في تلخيص المحادثة.. يبدو أن الجميع يتحدثون في وقت واحد! 😅');
+    } finally {
+      setSummarizing(false);
+    }
+  };
+
+  const handleAIReply = async (userPrompt: string) => {
+    try {
+      const resp = await fetch('/api/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: userPrompt,
+          history: messages.slice(-5).map(m => ({
+            role: m.senderId === profile.uid ? 'user' : 'model',
+            parts: [{ text: m.content }]
+          }))
+        })
+      });
+      const data = await resp.json();
+      
+      await addDoc(collection(db, 'messages'), {
+        senderId: 'ai-bot',
+        senderName: 'المساعد الذكي 🤖',
+        content: data.response,
+        type: 'text',
+        createdAt: serverTimestamp(),
+      });
+    } catch (err) {
+      console.error("AI Reply Error:", err);
+    }
   };
 
   const initCall = async (type: 'video' | 'voice') => {
@@ -2119,6 +2314,13 @@ const ChatPage = ({ profile }: { profile: UserProfile }) => {
         actions={
           <div className="flex gap-2">
             <button 
+              onClick={summarizeChat}
+              className="w-10 h-10 bg-amber-500/20 text-amber-500 rounded-xl flex items-center justify-center hover:bg-amber-500 hover:text-white transition-all active:scale-95 shadow-lg border border-amber-500/20"
+              title="ملخص المحادثة"
+            >
+              {summarizing ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={18} />}
+            </button>
+            <button 
               onClick={() => initCall('voice')}
               className="w-10 h-10 bg-emerald-600/20 text-emerald-500 rounded-xl flex items-center justify-center hover:bg-emerald-600 hover:text-white transition-all active:scale-95 shadow-lg border border-emerald-500/20"
             >
@@ -2133,6 +2335,31 @@ const ChatPage = ({ profile }: { profile: UserProfile }) => {
           </div>
         }
       />
+
+      {/* AI Summary Panel */}
+      <AnimatePresence>
+        {showSummary && (
+          <motion.div 
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="px-6 pt-4"
+          >
+            <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 p-4 rounded-3xl relative">
+               <button onClick={() => setShowSummary(false)} className="absolute top-2 left-2 text-amber-500 hover:text-amber-700">
+                  <X size={14} />
+               </button>
+               <div className="flex items-center gap-2 mb-2">
+                  <Sparkles size={12} className="text-amber-600" />
+                  <span className="text-[10px] font-black text-amber-800 uppercase tracking-widest">ملخص الذكاء الاصطناعي</span>
+               </div>
+               <p className="text-xs text-amber-900 leading-relaxed font-medium">
+                  {summarizing ? 'جاري عصر الأفكار وتلخيص الكلام...' : aiSummary}
+               </p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Active Calls Banner */}
       <div className="px-6 pt-4 space-y-3">
@@ -2256,7 +2483,7 @@ const ChatPage = ({ profile }: { profile: UserProfile }) => {
             <ImageIcon size={20} />
           </button>
           
-          <div className="flex-1 flex gap-2 bg-white/40 p-2 rounded-2xl border border-white/40 group focus-within:border-summer-accent transition-colors relative">
+          <form onSubmit={sendMsg} className="flex-1 flex gap-2 bg-white/40 p-2 rounded-2xl border border-white/40 group focus-within:border-summer-accent transition-colors relative">
             {isUploading && (
               <div className="absolute inset-0 bg-white/80 backdrop-blur-sm rounded-xl flex items-center justify-center z-20 gap-3">
                 <Loader2 size={16} className="text-summer-accent animate-spin" />
@@ -2264,19 +2491,23 @@ const ChatPage = ({ profile }: { profile: UserProfile }) => {
               </div>
             )}
             <input 
-              placeholder="اكتب رسالة للعائلة..."
+              placeholder="اكتب رسالة للعائلة... (أو اسأل 'يا ذكي')"
               className="flex-1 bg-transparent border-none focus:ring-0 px-4 text-sm font-medium text-summer-text placeholder:text-summer-text/30"
               value={newMsg}
               onChange={(e) => setNewMsg(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && sendMsg()}
+              disabled={isSending}
             />
             <button 
-              onClick={sendMsg}
-              className="summer-gradient text-white p-3 rounded-xl hover:scale-105 active:scale-95 transition-all shadow-lg"
+              type="submit"
+              disabled={isSending}
+              className={cn(
+                "summer-gradient text-white p-3 rounded-xl hover:scale-105 active:scale-95 transition-all shadow-lg",
+                isSending && "opacity-50"
+              )}
             >
-              <ArrowUpRight size={20} />
+              {isSending ? <Loader2 size={20} className="animate-spin" /> : <ArrowUpRight size={20} />}
             </button>
-          </div>
+          </form>
 
           <button 
             onClick={isRecording ? stopRecording : startRecording}
@@ -2778,11 +3009,32 @@ const FamilyMembersList = ({ currentUser }: { currentUser: UserProfile }) => {
             </div>
             <div>
               <p className="text-sm font-bold text-summer-text">{member.displayName}</p>
-              <p className="text-[10px] text-summer-text/40">{member.email}</p>
+              <div className="flex items-center gap-2">
+                 <p className="text-[9px] text-summer-text/40">{member.email}</p>
+                 <span className="text-[8px] bg-amber-500/10 text-amber-600 px-1.5 py-0.5 rounded-md font-black">{member.tokensBalance || 0} TOKENS</span>
+              </div>
             </div>
           </div>
           
           <div className="flex items-center gap-2">
+            {member.role === 'child' && (
+              <button 
+                onClick={() => {
+                  const amount = prompt(`كم عدد التوكن التي تريد منحها لـ ${member.displayName}؟`);
+                  if (amount && !isNaN(Number(amount))) {
+                    updateDoc(doc(db, 'users', member.uid), {
+                      tokensBalance: (member.tokensBalance || 0) + Number(amount)
+                    }).then(() => {
+                      sendNotification(member.uid, 'توكن هدية! 💎', `لقد منحك الأهل ${amount} توكن إضافية.. استمتع!`, 'success');
+                    });
+                  }
+                }}
+                className="p-2 bg-amber-500/10 text-amber-600 rounded-lg hover:bg-amber-500/20 transition-all"
+                title="منح توكن"
+              >
+                <Zap size={14} fill="currentColor" />
+              </button>
+            )}
             <button 
               onClick={() => toggleRole(member)}
               className={cn(
@@ -2806,53 +3058,154 @@ const FamilyMembersList = ({ currentUser }: { currentUser: UserProfile }) => {
   );
 };
 
-const SmartAdvisor = () => {
-  return null;
+const SmartAdvisor = ({ profile }: { profile: UserProfile }) => {
+  const [advice, setAdvice] = useState<string>('');
+  const [loading, setLoading] = useState(false);
+
+  const getAdvice = async () => {
+    setLoading(true);
+    try {
+      const resp = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: "أعطني نصيحة عائلية واحدة قصيرة وذكية اليوم لتحفيز الأطفال أو ممارسة التربية الإيجابية. ركز على التوكن والمهام.",
+          context: { userRole: profile.role, userName: profile.displayName }
+        })
+      });
+      const data = await resp.json();
+      setAdvice(data.response);
+    } catch (err) {
+      setAdvice('كن قدوة صالحة لأطفالك اليوم! ✨');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    getAdvice();
+  }, []);
+
+  return (
+    <div className="bg-gradient-to-br from-amber-400 to-orange-500 p-6 rounded-[2.5rem] shadow-xl relative overflow-hidden group">
+       <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 blur-2xl group-hover:scale-110 transition-transform duration-700"></div>
+       <div className="relative z-10 space-y-3">
+          <div className="flex items-center gap-2">
+             <div className="w-8 h-8 bg-white/20 rounded-xl flex items-center justify-center text-white">
+                <Sparkles size={16} fill="currentColor" />
+             </div>
+             <h3 className="text-white font-black text-sm uppercase tracking-widest">المستشار الذكي</h3>
+             {loading && <Loader2 size={12} className="text-white animate-spin ml-auto" />}
+          </div>
+          <p className="text-white/90 text-xs font-medium leading-relaxed">
+             {advice || 'جاري استحضار النصيحة الذكية...'}
+          </p>
+          <button 
+            onClick={getAdvice}
+            className="text-[9px] font-black text-amber-900 bg-white/20 hover:bg-white/40 px-3 py-1 rounded-full transition-all uppercase tracking-tighter"
+          >
+            نصيحة أخرى
+          </button>
+       </div>
+    </div>
+  );
 };
 
 const ShopPage = ({ profile }: { profile: UserProfile }) => {
   const [prizes, setPrizes] = useState<Prize[]>([]);
+  const [tokenProducts, setTokenProducts] = useState<StoreProduct[]>([]);
+  const [activeTab, setActiveTab] = useState<'prizes' | 'tokenStore'>('prizes');
   const [showAdd, setShowAdd] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newCost, setNewCost] = useState(50);
+  const [newImage, setNewImage] = useState('');
+  const [uploading, setUploading] = useState(false);
   const isParent = profile.role === 'parent';
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    try {
+      const storageRef = ref(storage, `tokenStore/${Date.now()}_${file.name}`);
+      await uploadBytes(storageRef, file);
+      const url = await getDownloadURL(storageRef);
+      setNewImage(url);
+    } catch (error) {
+      console.error("Upload error:", error);
+      alert("حدث خطأ أثناء تحميل الصورة");
+    } finally {
+      setUploading(false);
+    }
+  };
+
   useEffect(() => {
-    return onSnapshot(collection(db, 'prizes'), (snapshot) => {
+    const unsubPrizes = onSnapshot(collection(db, 'prizes'), (snapshot) => {
       setPrizes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Prize)));
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'prizes');
     });
+
+    const unsubTokenProducts = onSnapshot(collection(db, 'tokenStore'), (snapshot) => {
+      setTokenProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as StoreProduct)));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'tokenStore');
+    });
+
+    return () => {
+      unsubPrizes();
+      unsubTokenProducts();
+    };
   }, []);
 
   const addPrize = async () => {
     if (!newTitle) return;
     try {
-      await addDoc(collection(db, 'prizes'), {
-        title: newTitle,
-        cost: Number(newCost),
-        createdAt: serverTimestamp()
-      });
+      if (activeTab === 'prizes') {
+        await addDoc(collection(db, 'prizes'), {
+          title: newTitle,
+          cost: Number(newCost),
+          createdAt: serverTimestamp()
+        });
+      } else {
+        await addDoc(collection(db, 'tokenStore'), {
+          name: newTitle,
+          price: Number(newCost),
+          image: newImage || 'https://images.unsplash.com/photo-1549465220-1a8b9238cd48?w=200&h=200&fit=crop',
+          stock: 99,
+          createdAt: serverTimestamp()
+        });
+      }
       setNewTitle('');
+      setNewImage('');
       setShowAdd(false);
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, 'prizes');
+      handleFirestoreError(error, OperationType.CREATE, 'store');
+    }
+  };
+
+  const deleteProduct = async (id: string, collectionName: string) => {
+    if (!confirm('هل أنت متأكد من حذف هذا المنتج؟')) return;
+    try {
+      await deleteDoc(doc(db, collectionName, id));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, collectionName);
     }
   };
 
   const buyPrize = async (prize: Prize) => {
+    if (profile.role === 'parent') return;
     if (profile.points < prize.cost) {
       alert('نقاطك لا تكفي! استمر في العمل الرائع ✨');
       return;
     }
     
     try {
-      // 1. Deduct Points
       await updateDoc(doc(db, 'users', profile.uid), {
         points: profile.points - prize.cost
       });
 
-      // 2. Record Transaction
       await addDoc(collection(db, 'transactions'), {
         userId: profile.uid,
         userName: profile.displayName,
@@ -2869,35 +3222,102 @@ const ShopPage = ({ profile }: { profile: UserProfile }) => {
     }
   };
 
+  const buyTokenProduct = async (product: StoreProduct) => {
+    if (profile.role === 'parent') return;
+    if (profile.tokensBalance < product.price) {
+      alert('ليس لديك ما يكفي من التوكن! نفذ المهام النادرة للحصول عليها 💎');
+      return;
+    }
+
+    try {
+      await updateDoc(doc(db, 'users', profile.uid), {
+        tokensBalance: profile.tokensBalance - product.price
+      });
+
+      await addDoc(collection(db, 'transactions'), {
+        userId: profile.uid,
+        userName: profile.displayName,
+        type: 'token_purchase',
+        prizeTitle: product.name,
+        tokensSpent: product.price,
+        status: 'approved',
+        requestedAt: serverTimestamp()
+      });
+
+      alert(`يا بطل! مبروك شراء "${product.name}" بنظام التوكن! ✨`);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'token_purchase');
+    }
+  };
+
   return (
     <div className="pb-24 bg-summer-bg min-h-screen">
       
       <div className="px-6 mt-6 space-y-6">
-        <div className="bg-summer-card p-6 rounded-3xl border border-white/20 flex items-center justify-between shadow-xl">
-          <div>
-            <p className="text-summer-text/40 text-[10px] uppercase tracking-widest font-bold mb-1">الرصيد المتاح</p>
-            <h4 className="text-2xl font-black text-summer-accent">{profile.points} <span className="text-xs text-summer-text/50">نقطة</span></h4>
-          </div>
-          <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center text-summer-accent">
-            <ShoppingBag size={24} />
-          </div>
+        {/* Balances Card */}
+        <div className="bg-summer-card p-6 rounded-[2.5rem] border-2 border-white/40 flex items-center justify-around shadow-2xl relative overflow-hidden">
+           <div className="absolute top-0 right-0 w-32 h-32 bg-summer-accent/5 rounded-full blur-3xl"></div>
+           
+           <div className="text-center relative z-10">
+              <p className="text-[9px] text-summer-text/40 font-black uppercase tracking-widest mb-1">النقاط العادية</p>
+              <div className="flex items-center gap-2 justify-center">
+                 <div className="w-6 h-6 bg-summer-accent/20 rounded-lg flex items-center justify-center text-summer-accent">
+                    <Star size={14} fill="currentColor" />
+                 </div>
+                 <h4 className="text-xl font-black text-summer-text">{profile.points}</h4>
+              </div>
+           </div>
+
+           <div className="w-px h-10 bg-white/20"></div>
+
+           <div className="text-center relative z-10">
+              <p className="text-[9px] text-amber-500/60 font-black uppercase tracking-widest mb-1 font-mono">TOKENS <span className="text-amber-500">توكن</span></p>
+              <div className="flex items-center gap-2 justify-center">
+                 <div className="w-6 h-6 bg-amber-500/20 rounded-lg flex items-center justify-center text-amber-500 animate-pulse">
+                    <Zap size={14} fill="currentColor" />
+                 </div>
+                 <h4 className="text-xl font-black text-amber-600">{profile.tokensBalance || 0}</h4>
+              </div>
+           </div>
         </div>
 
-        {/* --- Monthly Rewards Section --- */}
-        {!isParent ? (
-          <MonthlyRewardsShop profile={profile} />
-        ) : (
-          <MonthlyRewardsManager />
-        )}
-        {/* ------------------------------ */}
+        {/* Tabs */}
+        <div className="flex bg-white/10 p-1.5 rounded-[2rem] border border-white/20 shadow-inner">
+           <button 
+             onClick={() => setActiveTab('prizes')}
+             className={cn(
+               "flex-1 py-4 rounded-2xl text-[10px] font-black transition-all flex items-center justify-center gap-2",
+               activeTab === 'prizes' ? "bg-summer-accent text-white shadow-lg" : "text-summer-text/40 hover:text-summer-text"
+             )}
+           >
+             <Gift size={16} />
+             متجر الجوائز
+           </button>
+           <button 
+             onClick={() => setActiveTab('tokenStore')}
+             className={cn(
+               "flex-1 py-4 rounded-2xl text-[10px] font-black transition-all flex items-center justify-center gap-2",
+               activeTab === 'tokenStore' ? "bg-amber-500 text-white shadow-lg" : "text-amber-500/60 hover:text-amber-500"
+             )}
+           >
+             <Zap size={16} />
+             متجر التوكن المميز
+           </button>
+        </div>
+
+        {!isParent && activeTab === 'prizes' && <MonthlyRewardsShop profile={profile} />}
+        {isParent && activeTab === 'prizes' && <MonthlyRewardsManager />}
 
         {isParent && (
           <button 
             onClick={() => setShowAdd(!showAdd)}
-            className="w-full bg-summer-primary text-white rounded-2xl py-4 font-bold flex items-center justify-center gap-3 shadow-lg hover:bg-summer-primary/90 transition-all active:scale-95"
+            className={cn(
+              "w-full text-white rounded-3xl py-5 font-black flex items-center justify-center gap-3 shadow-xl transition-all active:scale-95",
+              activeTab === 'prizes' ? "bg-summer-primary" : "bg-amber-600"
+            )}
           >
-            <PlusCircle size={20} />
-            <span>إضافة مكافأة جديدة للمتجر</span>
+            <PlusCircle size={24} />
+            <span>إضافة {activeTab === 'prizes' ? 'جائزة نقاط' : 'منتج توكن'}</span>
           </button>
         )}
 
@@ -2909,23 +3329,58 @@ const ShopPage = ({ profile }: { profile: UserProfile }) => {
               exit={{ height: 0, opacity: 0 }}
               className="overflow-hidden"
             >
-              <div className="bg-summer-card p-6 rounded-3xl border border-white/40 space-y-4 shadow-2xl">
+              <div className="bg-summer-card p-6 rounded-3xl border-2 border-white/40 space-y-4 shadow-2xl">
                 <input 
-                  placeholder="اسم المكافأة (مثلاً: ساعة إضافية سوني)"
+                  placeholder={activeTab === 'prizes' ? "اسم المكافأة" : "اسم المنتج (التوكن)"}
                   className="w-full bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-summer-text placeholder:text-summer-text/30 outline-none focus:border-summer-accent transition-colors"
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
                 />
                 <input 
                   type="number"
-                  placeholder="التكلفة بالنقاط"
+                  placeholder={activeTab === 'prizes' ? "التكلفة بالنقاط" : "السعر بالتوكن"}
                   className="w-full bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-summer-text outline-none focus:border-summer-accent placeholder:text-summer-text/30"
                   value={newCost}
                   onChange={(e) => setNewCost(Number(e.target.value))}
                 />
+                {activeTab === 'tokenStore' && (
+                  <div className="space-y-4">
+                    <label className="block bg-white/20 border-2 border-dashed border-white/40 rounded-2xl p-6 text-center cursor-pointer hover:border-amber-500/50 transition-all group">
+                       <input 
+                         type="file" 
+                         className="hidden" 
+                         accept="image/*"
+                         onChange={handleFileUpload}
+                         disabled={uploading}
+                       />
+                       {uploading ? (
+                         <div className="flex flex-col items-center gap-2">
+                           <Loader2 className="animate-spin text-amber-500" />
+                           <span className="text-xs text-summer-text/60">جاري الرفع...</span>
+                         </div>
+                       ) : newImage ? (
+                         <div className="relative inline-block">
+                           <img src={newImage} alt="Preview" className="w-20 h-20 object-cover rounded-xl shadow-lg border-2 border-white" />
+                           <div className="absolute -top-2 -right-2 bg-amber-500 text-white p-1 rounded-full shadow-md">
+                              <Camera size={12} />
+                           </div>
+                         </div>
+                       ) : (
+                         <div className="flex flex-col items-center gap-2">
+                            <ImageIcon size={32} className="text-summer-text/30" />
+                            <span className="text-xs text-summer-text/60 font-bold">اضغط لاختيار صورة المنتج</span>
+                         </div>
+                       )}
+                    </label>
+                  </div>
+                )}
                 <button 
                   onClick={addPrize}
-                  className="w-full summer-gradient text-white py-4 rounded-2xl font-black shadow-lg"
+                  disabled={uploading}
+                  className={cn(
+                    "w-full text-white py-5 rounded-2xl font-black shadow-lg",
+                    activeTab === 'prizes' ? "summer-gradient" : "bg-gradient-to-r from-amber-500 to-orange-500"
+                  )}
                 >
                   حفظ في المتجر
                 </button>
@@ -2934,28 +3389,69 @@ const ShopPage = ({ profile }: { profile: UserProfile }) => {
           )}
         </AnimatePresence>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {prizes.map(prize => (
-            <div key={prize.id} className="bg-summer-card p-5 rounded-3xl border border-white/30 relative overflow-hidden group shadow-xl hover:border-summer-accent/30 transition-all">
-              <div className="absolute top-0 left-0 w-full h-1 bg-summer-accent scale-x-0 group-hover:scale-x-100 transition-transform origin-right" />
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <h4 className="text-lg font-bold text-summer-text">{prize.title}</h4>
-                  <p className="text-summer-accent font-black text-xs">{prize.cost} نقطة</p>
+        {activeTab === 'prizes' ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {prizes.map(prize => (
+              <div key={prize.id} className="bg-summer-card p-6 rounded-[2.5rem] border border-white/30 relative overflow-hidden group shadow-xl hover:border-summer-accent/30 transition-all">
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <h4 className="text-lg font-bold text-summer-text">{prize.title}</h4>
+                    <p className="text-summer-accent font-black text-xs">{prize.cost} نقطة</p>
+                  </div>
+                  <div className="flex gap-2">
+                    {isParent && (
+                      <button onClick={() => deleteProduct(prize.id, 'prizes')} className="p-2 text-red-500/40 hover:text-red-500 transition-colors">
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+                    <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center text-summer-accent">
+                       <Gift size={20} />
+                    </div>
+                  </div>
                 </div>
-                <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center text-summer-text/20 group-hover:text-summer-accent transition-colors">
-                  <Star size={20} />
+                <button 
+                  onClick={() => buyPrize(prize)}
+                  disabled={isParent}
+                  className="w-full bg-white/20 hover:bg-summer-accent hover:text-white text-summer-text rounded-2xl py-4 text-[10px] font-black transition-all shadow-sm active:scale-95 disabled:opacity-50"
+                >
+                  {isParent ? 'مكافأة نقاط' : 'شراء بالنقاط'}
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-4">
+            {tokenProducts.map(product => (
+              <div key={product.id} className="bg-summer-card rounded-[2.5rem] border border-white/30 overflow-hidden group shadow-xl hover:border-amber-500/30 transition-all flex flex-col">
+                <div className="aspect-square relative overflow-hidden">
+                   <img src={product.image} alt={product.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                   <div className="absolute top-3 right-3 bg-white/90 backdrop-blur-md px-3 py-1.5 rounded-full flex items-center gap-1.5 shadow-sm">
+                      <Zap size={12} className="text-amber-500" fill="currentColor" />
+                      <span className="text-[10px] font-black text-summer-text">{product.price}</span>
+                   </div>
+                   {isParent && (
+                     <button 
+                       onClick={() => deleteProduct(product.id, 'tokenStore')} 
+                       className="absolute top-3 left-3 w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center shadow-lg active:scale-90 transition-all"
+                     >
+                       <Trash2 size={14} />
+                     </button>
+                   )}
+                </div>
+                <div className="p-5 space-y-4 flex-1 flex flex-col justify-between">
+                   <h4 className="text-sm font-black text-summer-text leading-tight">{product.name}</h4>
+                   <button 
+                     onClick={() => buyTokenProduct(product)}
+                     disabled={isParent}
+                     className="w-full bg-amber-500 text-white rounded-2xl py-3 text-[10px] font-black transition-all shadow-lg active:scale-95 disabled:opacity-50"
+                   >
+                     {isParent ? 'متوفر بالتوكن' : 'شراء الآن'}
+                   </button>
                 </div>
               </div>
-              <button 
-                onClick={() => buyPrize(prize)}
-                className="w-full bg-white/20 hover:bg-summer-accent hover:text-white text-summer-text rounded-xl py-3 text-xs font-bold transition-all shadow-sm"
-              >
-                {isParent ? 'تعديل المكافأة' : 'شراء الآن'}
-              </button>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -3177,7 +3673,13 @@ const MotivationCardShare = ({ motivation, onClose }: { motivation: Motivation; 
     if (!cardRef.current) return;
     setDownloading(true);
     try {
-      const dataUrl = await toPng(cardRef.current, { cacheBust: true, pixelRatio: 2 });
+      const dataUrl = await toPng(cardRef.current, { 
+        cacheBust: true, 
+        pixelRatio: 4,
+        style: {
+          borderRadius: '3rem'
+        }
+      });
       const link = document.createElement('a');
       link.download = `motivation-${motivation.id}.png`;
       link.href = dataUrl;
@@ -3621,6 +4123,7 @@ export default function App() {
         <main className="flex-1 overflow-x-hidden md:max-w-4xl md:mx-auto bg-summer-bg shadow-2xl border-x border-white/20">
           <Routes>
             <Route path="/" element={<Dashboard profile={profile} />} />
+            <Route path="/smart-advisor" element={<div className="p-6"><SmartAdvisor profile={profile} /></div>} />
             <Route path="/tasks" element={<TasksPage profile={profile} />} />
             <Route path="/chat" element={<ChatPage profile={profile} />} />
             <Route path="/wallet" element={<WalletPage profile={profile} />} />

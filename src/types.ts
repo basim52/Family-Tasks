@@ -9,6 +9,17 @@ export interface UserProfile {
   points: number;
   totalPointsEarned?: number;
   currencyBalance: number;
+  tokensBalance: number; // New specialized currency
+  createdAt: any;
+}
+
+export interface StoreProduct {
+  id: string;
+  name: string;
+  price: number;
+  image: string;
+  description?: string;
+  stock: number;
   createdAt: any;
 }
 
@@ -17,6 +28,8 @@ export interface Task {
   title: string;
   description: string;
   points: number;
+  rewardType: 'points' | 'tokens';
+  rewardAmount: number;
   status: 'pending' | 'completed' | 'approved' | 'rejected';
   assignedTo: string;
   assignedToName: string;
