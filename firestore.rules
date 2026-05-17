@@ -148,6 +148,11 @@ service cloud.firestore {
 
     // Collection Rules
 
+    match /appSettings/{settingId} {
+      allow get, list: if isSignedIn();
+      allow write: if isParent();
+    }
+
     match /users/{userId} {
       allow get, list: if isSignedIn();
       allow create: if isUser(userId) && isValidUser(request.resource.data);

@@ -44,7 +44,8 @@ import {
   Sparkles,
   Share2,
   Download,
-  Trash2
+  Trash2,
+  Coffee
 } from 'lucide-react';
 import { auth, db, storage } from './lib/firebase';
 import { useAuth } from './hooks/useAuth';
@@ -66,7 +67,8 @@ import {
   arrayUnion,
   limit,
   getDoc,
-  getDocs
+  getDocs,
+  setDoc
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Task, Message, UserProfile, Prize, StoreProduct, TaskComment, BigGoal, MonthlyReward, Call, BehaviorRating, Motivation, MotivationTemplate, Cheque } from './types';
@@ -1110,7 +1112,7 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
       
       <div className="px-6 space-y-8 mt-6">
         {/* Family Mood Dashboard */}
-        <FamilyPulse profile={profile} />
+        <FamilyIntelligence profile={profile} />
 
         {/* Smart Advisor Section */}
         <SmartAdvisor profile={profile} />
@@ -1308,60 +1310,189 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
 // --- AI Out-of-the-box Components ---
 
 const AIAssistant = ({ profile }: { profile: UserProfile }) => {
+  const [messages, setMessages] = useState<{ role: 'user' | 'model', parts: { text: string }[] }[]>([]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages]);
+
+  const sendMessage = async () => {
+    if (!input.trim() || loading) return;
+    const userMsg = input.trim();
+    const newMessages = [...messages, { role: 'user' as const, parts: [{ text: userMsg }] }];
+    setMessages(newMessages);
+    setInput('');
+    setLoading(true);
+
+    try {
+      const resp = await fetch('/api/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: userMsg,
+          history: messages
+        })
+      });
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      setMessages([...newMessages, { role: 'model' as const, parts: [{ text: data.response }] }]);
+    } catch (err: any) {
+      setMessages([...newMessages, { role: 'model' as const, parts: [{ text: "عذراً، واجهت مشكلة في التفكير.. هل يمكنك إعادة المحاولة؟" }] }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="h-screen flex flex-col pb-24 bg-summer-bg">
-      <Header title="المساعد" profile={profile} />
-      <div className="flex-1 flex flex-col items-center justify-center text-center p-8 space-y-4">
-        <div className="w-20 h-20 bg-summer-accent/10 rounded-full flex items-center justify-center">
-          <Settings size={40} className="text-summer-accent" />
+      <Header title="المساعد الذكي آل خليل والزاكي" profile={profile} />
+      
+      <div 
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto p-6 space-y-4 scroll-smooth"
+      >
+        {messages.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-full text-center space-y-6 opacity-60">
+            <div className="w-24 h-24 bg-summer-accent/20 rounded-full flex items-center justify-center animate-pulse">
+               <Sparkles size={48} className="text-summer-accent" />
+            </div>
+            <div className="max-w-xs">
+              <h3 className="font-black text-summer-text text-lg mb-2">أنا رفيقكم العائلي الذكي</h3>
+              <p className="text-xs text-summer-text/60 leading-relaxed">اسألني عن نصائح تربوية، أفكار لمهام جديدة، أو كيف تحفز أطفالك اليوم!</p>
+            </div>
+          </div>
+        )}
+
+        {messages.map((m, i) => (
+          <motion.div 
+            key={i}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className={cn(
+              "max-w-[85%] p-4 rounded-3xl text-sm font-medium leading-relaxed",
+              m.role === 'user' 
+                ? "bg-summer-accent text-white self-end mr-auto rounded-br-none shadow-lg" 
+                : "bg-white border border-white/40 text-summer-text self-start ml-auto rounded-bl-none shadow-sm"
+            )}
+          >
+            {m.parts[0].text}
+          </motion.div>
+        ))}
+        {loading && (
+          <div className="bg-white/40 border border-white/20 p-4 rounded-3xl self-start ml-auto rounded-bl-none">
+            <Loader2 size={16} className="animate-spin text-summer-accent" />
+          </div>
+        )}
+      </div>
+
+      <div className="p-6 bg-summer-card border-t border-white/20">
+        <div className="flex gap-3">
+          <input 
+            placeholder="اكتب سؤالك هنا..."
+            className="flex-1 bg-white/40 border border-white/40 rounded-2xl px-5 py-4 text-sm text-summer-text outline-none focus:border-summer-accent/50 placeholder:text-summer-text/30"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+          />
+          <button 
+            onClick={sendMessage}
+            disabled={loading}
+            className="w-14 h-14 bg-summer-accent text-white rounded-2xl flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-all disabled:opacity-50"
+          >
+            <ArrowUpRight size={24} />
+          </button>
         </div>
-        <h3 className="text-xl font-bold text-summer-text">هذه الخدمة غير متوفرة</h3>
-        <p className="text-xs text-summer-text/50">تم إيقاف خدمات المساعد الذكي حالياً.</p>
       </div>
     </div>
   );
 };
 
-const FamilyPulse = ({ profile }: { profile: UserProfile }) => {
+const FamilyIntelligence = ({ profile }: { profile: UserProfile }) => {
   const [mood, setMood] = useState<string | null>(null);
+  const [aiSuggestion, setAiSuggestion] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   
   const moods = [
-    { icon: Smile, label: 'سعيد', color: 'text-emerald-500', id: 'happy' },
-    { icon: Meh, label: 'متفرغ', color: 'text-summer-primary', id: 'neutral' },
-    { icon: Frown, label: 'تعبان', color: 'text-red-500', id: 'tired' },
+    { icon: Smile, label: 'سعادة غامرة', color: 'text-amber-500', id: 'happy' },
+    { icon: Coffee, label: 'وقت الراحة', color: 'text-blue-500', id: 'tired' },
+    { icon: Zap, label: 'طاقة ونشاط', color: 'text-purple-500', id: 'energetic' },
   ];
 
+  const getSmartIdea = async (mId: string, mLabel: string) => {
+    setMood(mId);
+    setLoading(true);
+    setAiSuggestion(null);
+    try {
+      const resp = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: `العائلة تشعر بـ: ${mLabel}. اقترح نشاطاً ذكياً وممتعاً واحداً (بحدود 15 كلمة) لزيادة الترابط العائلي الآن مع الطفل.`,
+          systemInstruction: "أنت خبير في السعادة العائلية. قدم اقتراحات مبدعة ومحببة."
+        })
+      });
+      const data = await resp.json();
+      setAiSuggestion(data.response);
+    } catch (err) {
+      setAiSuggestion('ما رأيكم ببعض القراءة الممتعة معاً؟ 📚');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <section className="bg-summer-card p-6 rounded-3xl border border-white/20 shadow-xl">
-      <div className="flex justify-between items-center mb-6">
-        <h3 className="text-sm font-bold text-summer-text/40 uppercase tracking-widest">نبض العائلة اليوم</h3>
+    <section className="bg-gradient-to-tr from-white/90 to-summer-primary/5 p-6 rounded-[2.5rem] border border-white/60 shadow-2xl backdrop-blur-sm relative overflow-hidden group">
+      <div className="absolute top-0 right-0 w-32 h-32 bg-summer-primary/5 rounded-full -mr-16 -mt-16 blur-3xl group-hover:bg-summer-primary/10 transition-colors duration-1000"></div>
+      
+      <div className="flex items-center gap-3 mb-6 relative z-10">
+        <div className="w-10 h-10 bg-summer-primary/20 rounded-2xl flex items-center justify-center text-summer-primary shadow-inner">
+          <Zap size={20} className="fill-current" />
+        </div>
+        <div>
+           <h3 className="text-xs font-black text-summer-text uppercase tracking-widest leading-none mb-1">مركز عائلة آل خليل والزاكي الذكي</h3>
+           <p className="text-[9px] text-summer-text/40 font-bold tracking-tight">نبض العائلة برؤية ذكية</p>
+        </div>
       </div>
       
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-3 relative z-10">
         {moods.map(m => (
           <button 
             key={m.id}
-            onClick={() => setMood(m.id)}
+            onClick={() => getSmartIdea(m.id, m.label)}
             className={cn(
-              "flex flex-col items-center gap-3 p-4 rounded-2xl border transition-all duration-300",
-              mood === m.id ? "bg-white/40 border-summer-accent shadow-lg" : "bg-white/20 border-transparent hover:bg-white/30"
+              "flex flex-col items-center gap-3 p-4 rounded-3xl border transition-all duration-500 relative overflow-hidden group",
+              mood === m.id ? "bg-white border-summer-primary shadow-xl scale-105" : "bg-white/40 border-transparent hover:bg-white/60"
             )}
           >
-            <m.icon size={28} className={mood === m.id ? m.color : 'text-summer-text/20'} />
-            <span className={cn("text-[10px] font-bold", mood === m.id ? "text-summer-text" : "text-summer-text/30")}>{m.label}</span>
+            {mood === m.id && <motion.div layoutId="mood-bg" className="absolute inset-0 bg-summer-primary/5" />}
+            <m.icon size={26} className={cn("relative z-10 transition-all duration-500", mood === m.id ? m.color : 'text-summer-text/20 group-hover:scale-110')} />
+            <span className={cn("text-[10px] font-black relative z-10", mood === m.id ? "text-summer-text" : "text-summer-text/30")}>{m.label}</span>
           </button>
         ))}
       </div>
       
-      {mood && (
-        <motion.p 
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: 'auto' }}
-          className="text-center text-[10px] text-summer-accent mt-4 font-bold"
-        >
-          شكراً لمشاركة شعورك!
-        </motion.p>
-      )}
+      <AnimatePresence>
+        {(loading || aiSuggestion) && (
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 10 }}
+            className="mt-6 p-5 rounded-[2rem] bg-gradient-to-r from-summer-primary/10 to-transparent border border-white/40 flex items-start gap-4 relative z-10 shadow-sm"
+          >
+            <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center shadow-sm shrink-0">
+               {loading ? <Loader2 size={16} className="text-summer-primary animate-spin" /> : <Sparkles size={16} className="text-summer-primary" />}
+            </div>
+            <p className="text-[11px] text-summer-text leading-relaxed font-bold italic">
+              {loading ? 'جاري عصر الأفكار الذكية لعائلتك...' : aiSuggestion}
+            </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </section>
   );
 };
@@ -3062,7 +3193,25 @@ const SmartAdvisor = ({ profile }: { profile: UserProfile }) => {
   const [advice, setAdvice] = useState<string>('');
   const [loading, setLoading] = useState(false);
 
-  const getAdvice = async () => {
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'appSettings', 'dailyAdvice'), (docSnap) => {
+      if (docSnap.exists()) {
+        setAdvice(docSnap.data().advice);
+      } else {
+        setAdvice('أهلاً بك في عائلة آل خليل والزاكي الذكية! ابدأ يومك بإيجابية. ✨');
+      }
+    });
+    return unsub;
+  }, []);
+
+  const getAdvice = async (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    
+    if (loading || profile.role !== 'parent') return;
+
     setLoading(true);
     try {
       const resp = await fetch('/api/ai', {
@@ -3074,40 +3223,58 @@ const SmartAdvisor = ({ profile }: { profile: UserProfile }) => {
         })
       });
       const data = await resp.json();
-      setAdvice(data.response);
+      
+      const adviceText = data.response;
+      await setDoc(doc(db, 'appSettings', 'dailyAdvice'), {
+        advice: adviceText,
+        updatedAt: serverTimestamp(),
+        updatedBy: profile.displayName,
+        type: 'daily'
+      });
     } catch (err) {
-      setAdvice('كن قدوة صالحة لأطفالك اليوم! ✨');
+      console.error(err);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    getAdvice();
-  }, []);
-
   return (
-    <div className="bg-gradient-to-br from-amber-400 to-orange-500 p-6 rounded-[2.5rem] shadow-xl relative overflow-hidden group">
-       <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 blur-2xl group-hover:scale-110 transition-transform duration-700"></div>
-       <div className="relative z-10 space-y-3">
-          <div className="flex items-center gap-2">
-             <div className="w-8 h-8 bg-white/20 rounded-xl flex items-center justify-center text-white">
-                <Sparkles size={16} fill="currentColor" />
-             </div>
-             <h3 className="text-white font-black text-sm uppercase tracking-widest">المستشار الذكي</h3>
-             {loading && <Loader2 size={12} className="text-white animate-spin ml-auto" />}
-          </div>
-          <p className="text-white/90 text-xs font-medium leading-relaxed">
-             {advice || 'جاري استحضار النصيحة الذكية...'}
-          </p>
-          <button 
-            onClick={getAdvice}
-            className="text-[9px] font-black text-amber-900 bg-white/20 hover:bg-white/40 px-3 py-1 rounded-full transition-all uppercase tracking-tighter"
-          >
-            نصيحة أخرى
-          </button>
-       </div>
-    </div>
+    <Link to="/ai-assistant" className="block w-full">
+      <div className="bg-gradient-to-br from-amber-400 to-orange-500 p-6 rounded-[2.5rem] shadow-xl relative overflow-hidden group transition-transform active:scale-95 text-right" dir="rtl">
+         <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 blur-2xl group-hover:scale-110 transition-transform duration-700"></div>
+         <div className="relative z-10 space-y-3">
+            <div className="flex items-center gap-2">
+               <div className="w-8 h-8 bg-white/20 rounded-xl flex items-center justify-center text-white">
+                  <Sparkles size={16} fill="currentColor" />
+               </div>
+               <h3 className="text-white font-black text-sm uppercase tracking-widest">المستشار الذكي آل خليل والزاكي</h3>
+               {loading && <Loader2 size={12} className="text-white animate-spin mr-auto" />}
+               {!loading && <ArrowUpRight size={14} className="text-white/60 mr-auto group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />}
+            </div>
+            
+            <div className="relative group/advice">
+              <p className="text-white/90 text-xs font-medium leading-relaxed">
+                 {advice || 'جاري استحضار النصيحة الذكية...'}
+              </p>
+              
+              {profile.role === 'parent' && (
+                <button 
+                  onClick={getAdvice}
+                  className="absolute -top-1 -left-1 w-6 h-6 bg-white/20 hover:bg-white/40 rounded-full flex items-center justify-center opacity-0 group-hover/advice:opacity-100 transition-opacity"
+                  title="تحديث النصيحة اليومية"
+                >
+                  <TrendingUp size={10} className="text-white" />
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] font-black text-amber-900 bg-white/20 px-3 py-1 rounded-full uppercase tracking-tighter">دردشة كاملة</span>
+              {profile.role === 'parent' && <span className="text-[8px] text-white/40 font-bold">يمكن للمشرف تحديث النصيحة</span>}
+            </div>
+         </div>
+      </div>
+    </Link>
   );
 };
 
@@ -3975,7 +4142,33 @@ const MotivationPage = ({ profile }: { profile: UserProfile }) => {
                </div>
 
                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-summer-text/40 uppercase tracking-widest px-1">أو اكتب رسالة مخصصة</label>
+                  <div className="flex justify-between items-center px-1">
+                     <label className="text-[10px] font-black text-summer-text/40 uppercase tracking-widest">أو اكتب رسالة مخصصة</label>
+                     <button 
+                       onClick={async () => {
+                          if (!selectedChild) return alert('اختر طفلاً أولاً');
+                          const child = family.find(f => f.uid === selectedChild);
+                          setCustomMsg('جاري كتابة رسالة ملهمة...');
+                          try {
+                            const resp = await fetch('/api/ai', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({
+                                prompt: `اكتب رسالة تحفيزية قصيرة جداً (بحدود 10 كلمات) للطفل ${child?.displayName} بناءً على روحه الجميلة واجتهاده اليوم. باللجة العربية الودودة.`,
+                                systemInstruction: "أنت مساعد ذكي متخصص في إلهام الأطفال."
+                              })
+                            });
+                            const data = await resp.json();
+                            setCustomMsg(data.response);
+                          } catch {
+                            setCustomMsg('أنت بطل ورايع اليوم! استمر ✨');
+                          }
+                       }}
+                       className="text-[9px] font-black text-summer-primary flex items-center gap-1 hover:underline"
+                     >
+                       <Sparkles size={10} /> رسالة ذكية
+                     </button>
+                  </div>
                   <div className="flex gap-2">
                     <input 
                       placeholder="رسالة إيجابية من قلبك..."
@@ -4123,6 +4316,7 @@ export default function App() {
         <main className="flex-1 overflow-x-hidden md:max-w-4xl md:mx-auto bg-summer-bg shadow-2xl border-x border-white/20">
           <Routes>
             <Route path="/" element={<Dashboard profile={profile} />} />
+            <Route path="/ai-assistant" element={<AIAssistant profile={profile} />} />
             <Route path="/smart-advisor" element={<div className="p-6"><SmartAdvisor profile={profile} /></div>} />
             <Route path="/tasks" element={<TasksPage profile={profile} />} />
             <Route path="/chat" element={<ChatPage profile={profile} />} />
