@@ -60,7 +60,9 @@ import {
   Rocket,
   ShieldCheck,
   Timer,
-  Wand2
+  Wand2,
+  Volume2,
+  VolumeX
 } from 'lucide-react';
 import { auth, db, storage } from './lib/firebase';
 import { useAuth } from './hooks/useAuth';
@@ -1383,7 +1385,7 @@ const AIAssistant = ({ profile }: { profile: UserProfile }) => {
 
   return (
     <div className="h-screen flex flex-col pb-24 bg-summer-bg">
-      <Header title="المساعد الذكي آل خليل والزاكي" profile={profile} />
+      <Header title="لحظات هدوء جميلة" profile={profile} />
       
       <div 
         ref={scrollRef}
@@ -1735,9 +1737,43 @@ const HarmonyRadar = ({ family, tasks }: { profile: UserProfile, family: UserPro
 const FamilyStoryWeaver = ({ profile, tasks }: { profile: UserProfile, tasks: Task[] }) => {
   const [story, setStory] = useState<string>("");
   const [loading, setLoading] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const synthRef = useRef<SpeechSynthesis | null>(window.speechSynthesis);
   
   // Use approved or completed tasks for the story
   const completedToday = tasks.filter(t => t.status === 'approved' || t.status === 'completed');
+
+  const speakStory = () => {
+    if (!synthRef.current) return;
+
+    if (isSpeaking) {
+      synthRef.current.cancel();
+      setIsSpeaking(false);
+      return;
+    }
+
+    if (!story) return;
+
+    const utterance = new SpeechSynthesisUtterance(story);
+    utterance.lang = 'ar-SA';
+    
+    // Playful settings
+    utterance.pitch = 1.3; // Higher pitch for a "playful/childish" tone
+    utterance.rate = 0.9;  // Slightly slower for better clarity
+
+    // Try to pick an Arabic voice if available
+    const voices = synthRef.current.getVoices();
+    const arabicVoice = voices.find(v => v.lang.includes('ar'));
+    if (arabicVoice) {
+      utterance.voice = arabicVoice;
+    }
+
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+
+    setIsSpeaking(true);
+    synthRef.current.speak(utterance);
+  };
 
   const generateStory = async () => {
     if (completedToday.length === 0) return;
@@ -1814,8 +1850,14 @@ const FamilyStoryWeaver = ({ profile, tasks }: { profile: UserProfile, tasks: Ta
             >
               تحديث القصة ✨
             </button>
-            <button className="px-4 py-3 bg-indigo-50 text-indigo-600 rounded-2xl text-[10px] font-black shadow-sm">
-              <Mic size={16} />
+            <button 
+              onClick={speakStory}
+              className={cn(
+                "px-4 py-3 rounded-2xl text-[10px] font-black shadow-sm transition-all",
+                isSpeaking ? "bg-red-50 text-red-600 border border-red-100" : "bg-indigo-50 text-indigo-600"
+              )}
+            >
+              {isSpeaking ? <VolumeX size={16} /> : <Volume2 size={16} />}
             </button>
           </div>
         </div>
@@ -2204,8 +2246,8 @@ const FamilyIntelligence = ({ profile }: { profile: UserProfile }) => {
           <Zap size={20} className="fill-current" />
         </div>
         <div>
-           <h3 className="text-xs font-black text-summer-text uppercase tracking-widest leading-none mb-1">مركز عائلة آل خليل والزاكي الذكي</h3>
-           <p className="text-[9px] text-summer-text/40 font-bold tracking-tight">نبض العائلة برؤية ذكية</p>
+           <h3 className="text-xs font-black text-summer-text uppercase tracking-widest leading-none mb-1">نبض العائلة الذكي</h3>
+           <p className="text-[9px] text-summer-text/40 font-bold tracking-tight">إبداع متواصل برؤية ذكية</p>
         </div>
       </div>
       
@@ -3125,7 +3167,7 @@ const ChatPage = ({ profile }: { profile: UserProfile }) => {
       
       await addDoc(collection(db, 'messages'), {
         senderId: 'ai-bot',
-        senderName: 'المساعد الذكي 🤖',
+        senderName: 'لحظات هدوء جميلة 🤖',
         content: data.response,
         type: 'text',
         createdAt: serverTimestamp(),
@@ -3997,7 +4039,7 @@ const SmartAdvisor = ({ profile }: { profile: UserProfile }) => {
                <div className="w-8 h-8 bg-white/20 rounded-xl flex items-center justify-center text-white">
                   <Sparkles size={16} fill="currentColor" />
                </div>
-               <h3 className="text-white font-black text-sm uppercase tracking-widest">المستشار الذكي آل خليل والزاكي</h3>
+               <h3 className="text-white font-black text-sm uppercase tracking-widest">لحظات هدوء جميلة</h3>
                {loading && <Loader2 size={12} className="text-white animate-spin mr-auto" />}
                {!loading && <ArrowUpRight size={14} className="text-white/60 mr-auto group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />}
             </div>
