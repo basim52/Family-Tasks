@@ -1076,14 +1076,11 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
   const level = getLevel(profile.totalPointsEarned);
 
   useEffect(() => {
-    const qTasks = isParent 
-      ? query(collection(db, 'tasks'), orderBy('createdAt', 'desc'))
-      : query(collection(db, 'tasks'), where('assignedTo', '==', profile.uid), orderBy('createdAt', 'desc'));
+    const qTasks = query(collection(db, 'tasks'), orderBy('createdAt', 'desc'));
     
     const unsubTasks = onSnapshot(qTasks, (snapshot) => {
       setTasks(snapshot.docs
         .map(doc => ({ id: doc.id, ...doc.data() } as Task))
-        .filter(t => t.status !== 'approved')
       );
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'tasks');
@@ -1144,7 +1141,7 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
         <SmartAdvisor profile={profile} />
 
         {/* Competition Record */}
-        <CompetitionRecord family={family} />
+        <CompetitionRecord family={family} tasks={tasks} />
 
         {/* Family Innovation Center (New Requested Features) */}
         <FamilyInnovationCenter profile={profile} family={family} tasks={tasks} />
@@ -1296,7 +1293,11 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
           </div>
           
           <div className="grid grid-cols-1 gap-4">
-            {tasks.slice(0, 3).map((task) => (
+            {tasks
+              .filter(t => isParent || t.assignedTo === profile.uid)
+              .filter(t => t.status !== 'approved')
+              .slice(0, 3)
+              .map((task) => (
               <div key={task.id} className="bg-summer-primary p-5 rounded-3xl border border-white/30 flex flex-col justify-between shadow-xl relative overflow-hidden group">
                 <div className="absolute top-4 left-4">
                    <div className="bg-summer-secondary text-white px-3 py-1 rounded-full text-[10px] font-black shadow-md">{task.points} نقطة</div>
@@ -1444,15 +1445,51 @@ const AIAssistant = ({ profile }: { profile: UserProfile }) => {
   );
 };
 
-const CompetitionRecord = ({ family }: { family: UserProfile[] }) => {
+const CompetitionRecord = ({ family, tasks }: { family: UserProfile[], tasks: Task[] }) => {
   const childrenOnly = family.filter(f => f.role === 'child');
-  const topByPoints = [...childrenOnly].sort((a, b) => (b.points || 0) - (a.points || 0));
-  const topByTokens = [...childrenOnly].sort((a, b) => (b.tokensBalance || 0) - (a.tokensBalance || 0));
+  
+  // Calculate stats for each child
+  const childrenWithStats = childrenOnly.map(child => {
+    const childTasks = tasks.filter(t => t.assignedTo === child.uid);
+    const completedTasks = childTasks.filter(t => t.status === 'approved' || t.status === 'completed');
+    
+    // Calculate points earned today (from approved tasks)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const todayPoints = childTasks
+      .filter(t => t.status === 'approved' && t.approvedAt && t.approvedAt.toMillis() >= today.getTime())
+      .reduce((sum, t) => sum + (t.rewardAmount || t.points || 0), 0);
+
+    // Sort by completion date (newest first)
+    const sortedCompletions = [...completedTasks].sort((a, b) => {
+      const dateA = a.approvedAt?.toMillis() || a.completedAt?.toMillis() || 0;
+      const dateB = b.approvedAt?.toMillis() || b.completedAt?.toMillis() || 0;
+      return dateB - dateA;
+    });
+    
+    const lastTaskTitle = sortedCompletions[0]?.title || 'بانتظار الإنجاز الأول..';
+    const completedCount = sortedCompletions.length;
+    
+    return { 
+      ...child, 
+      completedCount, 
+      todayPoints,
+      lastTaskTitle 
+    };
+  });
+
+  const topByPoints = [...childrenWithStats].sort((a, b) => {
+    const pointsA = Math.max(a.totalPointsEarned || 0, a.points || 0);
+    const pointsB = Math.max(b.totalPointsEarned || 0, b.points || 0);
+    return pointsB - pointsA;
+  });
+  const topByActivity = [...childrenWithStats].sort((a, b) => (b.completedCount || 0) - (a.completedCount || 0));
 
   if (childrenOnly.length === 0) return null;
 
   return (
-    <section className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
+    <section className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700" id="competition-record">
       <div className="flex items-center gap-3 px-1">
         <div className="w-10 h-10 bg-amber-400 rounded-xl flex items-center justify-center text-white shadow-lg">
           <Trophy size={20} />
@@ -1467,7 +1504,7 @@ const CompetitionRecord = ({ family }: { family: UserProfile[] }) => {
             <Medal size={80} />
           </div>
           <h4 className="text-xs font-black text-summer-text/60 uppercase tracking-widest mb-4 flex items-center gap-2">
-            <Star size={14} className="text-amber-500" /> أعلى النقاط
+            <Star size={14} className="text-amber-500" /> لوحة الشرف (النقاط)
           </h4>
           <div className="space-y-3">
             {topByPoints.map((child, index) => (
@@ -1498,28 +1535,34 @@ const CompetitionRecord = ({ family }: { family: UserProfile[] }) => {
                     <p className="text-[9px] font-black text-amber-800 mt-1 mr-10">وينك انت يا {child.displayName}؟ 🏃‍♂️</p>
                   )}
                 </div>
-                <div className="text-xs font-black text-amber-600 bg-amber-500/10 px-3 py-1 rounded-full">
-                  {child.points || 0}
+                <div className="text-right">
+                  <div className="text-xs font-black text-amber-600 bg-amber-500/10 px-3 py-1 rounded-full">
+                    {Math.max(child.totalPointsEarned || 0, child.points || 0)}
+                  </div>
+                  {child.todayPoints > 0 && (
+                    <p className="text-[8px] font-black text-green-600 mt-1">+{child.todayPoints} اليوم!</p>
+                  )}
+                  <p className="text-[8px] font-bold text-summer-text/30 mt-0.5">نقطة</p>
                 </div>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Tokens Leaderboard */}
+        {/* Activity Leaderboard */}
         <div className="bg-summer-card p-6 rounded-[2.5rem] border border-white/40 shadow-xl relative overflow-hidden group">
           <div className="absolute top-0 right-0 p-4 opacity-[0.03] rotate-12 group-hover:rotate-0 transition-transform duration-700">
             <Zap size={80} />
           </div>
           <h4 className="text-xs font-black text-summer-text/60 uppercase tracking-widest mb-4 flex items-center gap-2">
-            <Zap size={14} className="text-summer-accent" /> أعلى التوكن
+            <CheckCircle2 size={14} className="text-green-500" /> الأكثر نشاطاً (المهام)
           </h4>
           <div className="space-y-3">
-            {topByTokens.map((child, index) => (
+            {topByActivity.map((child, index) => (
               <div key={child.uid} className="flex items-center gap-4 p-3 rounded-2xl bg-white/20 border border-white/20 hover:bg-white/40 transition-colors">
                 <div className={cn(
                   "w-8 h-8 rounded-full flex items-center justify-center font-black text-xs shadow-sm",
-                  index === 0 ? "bg-summer-accent text-white" : 
+                  index === 0 ? "bg-green-500 text-white" : 
                   index === 1 ? "bg-slate-300 text-slate-700" :
                   index === 2 ? "bg-amber-700 text-white" :
                   "bg-white/40 text-summer-text/40"
@@ -1528,23 +1571,35 @@ const CompetitionRecord = ({ family }: { family: UserProfile[] }) => {
                 </div>
                 <div className="flex-1 flex flex-col justify-center">
                   <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-full bg-summer-primary/20 flex items-center justify-center text-[10px] text-summer-primary font-black">
+                    <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center text-[10px] text-green-600 font-black">
                       {child.displayName?.charAt(0)}
                     </div>
                     <p className="text-xs font-bold text-summer-text">{child.displayName}</p>
                   </div>
                   {index === 0 && (
-                    <p className="text-[9px] font-black text-summer-accent mt-1 mr-10 animate-pulse">الأول يليق بك يا {child.displayName} 🌟</p>
+                    <>
+                      <p className="text-[9px] font-black text-green-600 mt-1 mr-10 animate-pulse">شعلة نشاط لا تنطفئ! 🔥</p>
+                      <p className="text-[8px] text-green-600/50 mr-10 italic">آخر إنجاز: {child.lastTaskTitle}</p>
+                    </>
                   )}
                   {index === 1 && (
-                    <p className="text-[9px] font-black text-slate-500 mt-1 mr-10">قربت يا بطل لا تيأس يا {child.displayName} ✨</p>
+                    <>
+                      <p className="text-[9px] font-black text-slate-500 mt-1 mr-10">خطوات بسيطة نحو القمة.. 🚀</p>
+                      <p className="text-[8px] text-slate-400 mr-10 italic">آخر إنجاز: {child.lastTaskTitle}</p>
+                    </>
                   )}
                   {index === 2 && (
-                    <p className="text-[9px] font-black text-amber-800 mt-1 mr-10">وينك انت يا {child.displayName}؟ 🏃‍♂️</p>
+                    <>
+                      <p className="text-[9px] font-black text-amber-800 mt-1 mr-10">تحرك يا بطل، نحن بانتظارك! 👋</p>
+                      <p className="text-[8px] text-amber-700/50 mr-10 italic">آخر إنجاز: {child.lastTaskTitle}</p>
+                    </>
                   )}
                 </div>
-                <div className="text-xs font-black text-summer-accent bg-summer-accent/10 px-3 py-1 rounded-full">
-                  {child.tokensBalance || 0}
+                <div className="text-right">
+                  <div className="text-xs font-black text-green-600 bg-green-500/10 px-3 py-1 rounded-full">
+                    {child.completedCount || 0}
+                  </div>
+                  <p className="text-[8px] font-bold text-summer-text/30 mt-1">مهمة</p>
                 </div>
               </div>
             ))}
@@ -1678,8 +1733,46 @@ const HarmonyRadar = ({ family, tasks }: { profile: UserProfile, family: UserPro
 };
 
 const FamilyStoryWeaver = ({ profile, tasks }: { profile: UserProfile, tasks: Task[] }) => {
-  const completedToday = tasks.filter(t => t.status === 'approved').slice(0, 2);
+  const [story, setStory] = useState<string>("");
+  const [loading, setLoading] = useState(false);
   
+  // Use approved or completed tasks for the story
+  const completedToday = tasks.filter(t => t.status === 'approved' || t.status === 'completed');
+
+  const generateStory = async () => {
+    if (completedToday.length === 0) return;
+    setLoading(true);
+    try {
+      const achievements = completedToday.slice(0, 5).map(t => `${t.assignedToName} أنجز مهمة: ${t.title}`).join('، ');
+      const prompt = `بناءً على هذه الإنجازات اليومية للعائلة: ${achievements}. اكتب قصة قصيرة جداً ومشجعة (بأسلوب الحكواتي) للأطفال تجعلهم أبطالاً خارقين. اجعلها باللغة العربية الودودة ومختصرة جداً (فقرة واحدة فقط) لتناسب بطاقة واجهة مستخدم. قل "كان يا مكان" في البداية.`;
+      
+      const resp = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt })
+      });
+      
+      const data = await resp.json();
+      if (data.response) {
+        setStory(data.response);
+      } else {
+        // Fallback if API fails or no key
+        setStory(`"كان يا مكان، في قلعة السعادة اليوم، قام الأبطال ${completedToday[0].assignedToName} ورفاقه بمهام عظيمة، مما جعل المملكة كلها تفتخر بصورة إنجازاتهم الرائعة!"`);
+      }
+    } catch (err) {
+      console.error("Story generation failed:", err);
+      setStory(`"كان يا مكان، وفي قلعة آل خليل، قام الفارس ${completedToday[0].assignedToName} بمهمة عظيمة وهي ${completedToday[0].title}، ونشر السعادة في كل الأرجاء!"`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (completedToday.length > 0 && !story && !loading) {
+      generateStory();
+    }
+  }, [completedToday.length]);
+
   return (
     <section className="bg-summer-card p-6 rounded-[2.5rem] border border-white/40 shadow-xl relative overflow-hidden group">
       <div className="absolute top-0 right-0 p-4 opacity-[0.03] group-hover:rotate-12 transition-transform">
@@ -1695,21 +1788,40 @@ const FamilyStoryWeaver = ({ profile, tasks }: { profile: UserProfile, tasks: Ta
         تحويل إنجازات اليوم إلى قصص خيالية أبطالها أطفالك!
       </p>
       
-      {completedToday.length > 0 ? (
+      {loading ? (
+        <div className="py-8 flex flex-col items-center justify-center animate-pulse">
+           <Sparkles className="text-indigo-500 mb-2 animate-bounce" size={24} />
+           <p className="text-[10px] font-black text-indigo-700 italic">جاري تأليف حكاية إنجازاتكم...</p>
+        </div>
+      ) : completedToday.length > 0 ? (
         <div className="space-y-3">
-          <div className="p-4 rounded-2xl bg-white/40 border border-white/60">
-            <p className="text-[10px] font-bold text-indigo-700 mb-1">قصة الليلة المقترحة:</p>
-            <p className="text-[11px] text-summer-text leading-relaxed italic">
-              "كان يا مكان، وفي قلعة آل خليل، قام الفارس {completedToday[0].assignedToName} بمهمة عظيمة وهي {completedToday[0].title}..."
+          <motion.div 
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="p-4 rounded-2xl bg-white/40 border border-white/60"
+          >
+            <p className="text-[10px] font-bold text-indigo-700 mb-2 flex items-center gap-1">
+              <Star size={10} /> قصة الليلة:
             </p>
+            <p className="text-[11px] text-summer-text leading-relaxed italic font-medium">
+              {story || "بانتظار الإلهام السحري..."}
+            </p>
+          </motion.div>
+          <div className="flex gap-2">
+            <button 
+              onClick={generateStory}
+              className="flex-1 py-3 bg-white border border-indigo-100 text-indigo-600 rounded-2xl text-[10px] font-black hover:bg-indigo-50 transition-colors shadow-sm"
+            >
+              تحديث القصة ✨
+            </button>
+            <button className="px-4 py-3 bg-indigo-50 text-indigo-600 rounded-2xl text-[10px] font-black shadow-sm">
+              <Mic size={16} />
+            </button>
           </div>
-          <button className="w-full py-3 bg-white border border-indigo-100 text-indigo-600 rounded-2xl text-[10px] font-black hover:bg-indigo-50 transition-colors shadow-sm">
-            استماع للقصة كاملة 🎙️
-          </button>
         </div>
       ) : (
-        <div className="p-6 text-center border-2 border-dashed border-summer-primary/10 rounded-3xl">
-           <p className="text-[10px] text-summer-text/40 font-bold">أكمل مهامك اليوم لتظهر في قصة الليلة!</p>
+        <div className="p-6 text-center border-2 border-dashed border-summer-primary/10 rounded-3xl bg-white/10">
+           <p className="text-[10px] text-summer-text/40 font-bold">أكمل مهامك اليوم لتظهر في قصة الليلة! قل لأمك أو أبيك أن يوافقوا على مهامك المكتملة.</p>
         </div>
       )}
     </section>
