@@ -153,6 +153,16 @@ export interface MotivationTemplate {
   createdAt: any;
 }
 
+export interface Badge {
+  id: string;
+  name: string;
+  childId: string;
+  childName: string;
+  icon: string;
+  color: string;
+  awardedAt: any;
+}
+
 export interface Cheque {
   id: string;
   transactionId: string;

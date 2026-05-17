@@ -45,7 +45,22 @@ import {
   Share2,
   Download,
   Trash2,
-  Coffee
+  Coffee,
+  Lightbulb,
+  BookOpen,
+  Clock,
+  Map,
+  Flag,
+  Briefcase,
+  Scale,
+  Waves,
+  FileText,
+  Handshake,
+  Radar,
+  Rocket,
+  ShieldCheck,
+  Timer,
+  Wand2
 } from 'lucide-react';
 import { auth, db, storage } from './lib/firebase';
 import { useAuth } from './hooks/useAuth';
@@ -71,7 +86,7 @@ import {
   setDoc
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { Task, Message, UserProfile, Prize, StoreProduct, TaskComment, BigGoal, MonthlyReward, Call, BehaviorRating, Motivation, MotivationTemplate, Cheque } from './types';
+import { Task, Message, UserProfile, Prize, StoreProduct, TaskComment, BigGoal, MonthlyReward, Call, BehaviorRating, Motivation, MotivationTemplate, Cheque, Badge } from './types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -121,7 +136,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 const Navbar = ({ profile }: { profile: UserProfile | null }) => {
   const location = useLocation();
   const navItems = [
-    { path: '/', icon: Home, label: 'الرئيسية' },
+    { path: '/', icon: Home, label: 'لوحة التحكم' },
     { path: '/tasks', icon: CheckSquare, label: 'المهام' },
     { path: '/chat', icon: MessageCircle, label: 'الدردشة' },
     { path: '/wallet', icon: WalletIcon, label: 'المحفظة' },
@@ -1056,6 +1071,7 @@ const MonthlyRewardsShop = ({ profile }: { profile: UserProfile }) => {
 const Dashboard = ({ profile }: { profile: UserProfile }) => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [motivations, setMotivations] = useState<Motivation[]>([]);
+  const [family, setFamily] = useState<UserProfile[]>([]);
   const isParent = profile.role === 'parent';
   const level = getLevel(profile.totalPointsEarned);
 
@@ -1071,6 +1087,12 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
       );
     }, (error) => {
       handleFirestoreError(error, OperationType.LIST, 'tasks');
+    });
+
+    const unsubFamily = onSnapshot(collection(db, 'users'), (snapshot) => {
+      setFamily(snapshot.docs.map(doc => doc.data() as UserProfile));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'users');
     });
 
     // Fetch motivations for children
@@ -1090,6 +1112,7 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
     return () => {
       unsubTasks();
       unsubMotivations();
+      unsubFamily();
     };
   }, [profile.uid, isParent]);
 
@@ -1108,7 +1131,10 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
 
   return (
     <div className="pb-24 animate-in fade-in slide-in-from-bottom-4 duration-500 bg-summer-bg min-h-screen">
-      <Header title={`مرحباً، ${profile.displayName}`} profile={profile} />
+      <Header 
+        title={isParent ? 'لوحة التحكم الذكية' : `مرحباً، ${profile.displayName}`} 
+        profile={profile} 
+      />
       
       <div className="px-6 space-y-8 mt-6">
         {/* Family Mood Dashboard */}
@@ -1116,6 +1142,12 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
 
         {/* Smart Advisor Section */}
         <SmartAdvisor profile={profile} />
+
+        {/* Competition Record */}
+        <CompetitionRecord family={family} />
+
+        {/* Family Innovation Center (New Requested Features) */}
+        <FamilyInnovationCenter profile={profile} family={family} tasks={tasks} />
 
         {/* Notifications Prompt for Children */}
         {!isParent && typeof window !== 'undefined' && 'Notification' in window && window.Notification.permission !== 'granted' && (
@@ -1409,6 +1441,612 @@ const AIAssistant = ({ profile }: { profile: UserProfile }) => {
         </div>
       </div>
     </div>
+  );
+};
+
+const CompetitionRecord = ({ family }: { family: UserProfile[] }) => {
+  const childrenOnly = family.filter(f => f.role === 'child');
+  const topByPoints = [...childrenOnly].sort((a, b) => (b.points || 0) - (a.points || 0));
+  const topByTokens = [...childrenOnly].sort((a, b) => (b.tokensBalance || 0) - (a.tokensBalance || 0));
+
+  if (childrenOnly.length === 0) return null;
+
+  return (
+    <section className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
+      <div className="flex items-center gap-3 px-1">
+        <div className="w-10 h-10 bg-amber-400 rounded-xl flex items-center justify-center text-white shadow-lg">
+          <Trophy size={20} />
+        </div>
+        <h3 className="text-sm font-bold text-summer-text/40 uppercase tracking-[0.2em]">سجل التنافس العائلي 🏆</h3>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Points Leaderboard */}
+        <div className="bg-summer-card p-6 rounded-[2.5rem] border border-white/40 shadow-xl relative overflow-hidden group">
+          <div className="absolute top-0 right-0 p-4 opacity-[0.03] -rotate-12 group-hover:rotate-0 transition-transform duration-700">
+            <Medal size={80} />
+          </div>
+          <h4 className="text-xs font-black text-summer-text/60 uppercase tracking-widest mb-4 flex items-center gap-2">
+            <Star size={14} className="text-amber-500" /> أعلى النقاط
+          </h4>
+          <div className="space-y-3">
+            {topByPoints.map((child, index) => (
+              <div key={child.uid} className="flex items-center gap-4 p-3 rounded-2xl bg-white/20 border border-white/20 hover:bg-white/40 transition-colors">
+                <div className={cn(
+                  "w-8 h-8 rounded-full flex items-center justify-center font-black text-xs shadow-sm",
+                  index === 0 ? "bg-amber-400 text-white" : 
+                  index === 1 ? "bg-slate-300 text-slate-700" :
+                  index === 2 ? "bg-amber-700 text-white" :
+                  "bg-white/40 text-summer-text/40"
+                )}>
+                  {index + 1}
+                </div>
+                <div className="flex-1 flex flex-col justify-center">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full bg-summer-secondary/20 flex items-center justify-center text-[10px] text-summer-secondary font-black">
+                      {child.displayName?.charAt(0)}
+                    </div>
+                    <p className="text-xs font-bold text-summer-text">{child.displayName}</p>
+                  </div>
+                  {index === 0 && (
+                    <p className="text-[9px] font-black text-amber-600 mt-1 mr-10 animate-pulse">الأول يليق بك يا {child.displayName} 🌟</p>
+                  )}
+                  {index === 1 && (
+                    <p className="text-[9px] font-black text-slate-500 mt-1 mr-10">قربت يا بطل لا تيأس يا {child.displayName} ✨</p>
+                  )}
+                  {index === 2 && (
+                    <p className="text-[9px] font-black text-amber-800 mt-1 mr-10">وينك انت يا {child.displayName}؟ 🏃‍♂️</p>
+                  )}
+                </div>
+                <div className="text-xs font-black text-amber-600 bg-amber-500/10 px-3 py-1 rounded-full">
+                  {child.points || 0}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Tokens Leaderboard */}
+        <div className="bg-summer-card p-6 rounded-[2.5rem] border border-white/40 shadow-xl relative overflow-hidden group">
+          <div className="absolute top-0 right-0 p-4 opacity-[0.03] rotate-12 group-hover:rotate-0 transition-transform duration-700">
+            <Zap size={80} />
+          </div>
+          <h4 className="text-xs font-black text-summer-text/60 uppercase tracking-widest mb-4 flex items-center gap-2">
+            <Zap size={14} className="text-summer-accent" /> أعلى التوكن
+          </h4>
+          <div className="space-y-3">
+            {topByTokens.map((child, index) => (
+              <div key={child.uid} className="flex items-center gap-4 p-3 rounded-2xl bg-white/20 border border-white/20 hover:bg-white/40 transition-colors">
+                <div className={cn(
+                  "w-8 h-8 rounded-full flex items-center justify-center font-black text-xs shadow-sm",
+                  index === 0 ? "bg-summer-accent text-white" : 
+                  index === 1 ? "bg-slate-300 text-slate-700" :
+                  index === 2 ? "bg-amber-700 text-white" :
+                  "bg-white/40 text-summer-text/40"
+                )}>
+                  {index + 1}
+                </div>
+                <div className="flex-1 flex flex-col justify-center">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full bg-summer-primary/20 flex items-center justify-center text-[10px] text-summer-primary font-black">
+                      {child.displayName?.charAt(0)}
+                    </div>
+                    <p className="text-xs font-bold text-summer-text">{child.displayName}</p>
+                  </div>
+                  {index === 0 && (
+                    <p className="text-[9px] font-black text-summer-accent mt-1 mr-10 animate-pulse">الأول يليق بك يا {child.displayName} 🌟</p>
+                  )}
+                  {index === 1 && (
+                    <p className="text-[9px] font-black text-slate-500 mt-1 mr-10">قربت يا بطل لا تيأس يا {child.displayName} ✨</p>
+                  )}
+                  {index === 2 && (
+                    <p className="text-[9px] font-black text-amber-800 mt-1 mr-10">وينك انت يا {child.displayName}؟ 🏃‍♂️</p>
+                  )}
+                </div>
+                <div className="text-xs font-black text-summer-accent bg-summer-accent/10 px-3 py-1 rounded-full">
+                  {child.tokensBalance || 0}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+};
+
+const FamilyInnovationCenter = ({ profile, family, tasks }: { profile: UserProfile, family: UserProfile[], tasks: Task[] }) => {
+  const isParent = profile.role === 'parent';
+  const children = family.filter(f => f.role === 'child');
+
+  return (
+    <div className="space-y-8 pb-8">
+      {/* 5. Family Harmony Radar (رادار المشاعر المتوقع) */}
+      <HarmonyRadar profile={profile} family={family} tasks={tasks} />
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* 1. Family Story Weaver (حكواتي العائلة الذكي) */}
+        <FamilyStoryWeaver profile={profile} tasks={tasks} />
+
+        {/* 2. Flash Instant Quest (تحدي "فلاش" المفاجئ) */}
+        <FlashInstantQuest profile={profile} isParent={isParent} />
+      </div>
+
+      {/* 3. Interactive Treasure Map (خريطة الكنز التفاعلية) */}
+      <TreasureMapPreview profile={profile} tasks={tasks} />
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* 4. AI Negotiator (المفاوض الذكي) */}
+        <AINegotiator profile={profile} />
+
+        {/* 6. Weekly Expert Badges (وسام "خبير الأسبوع") */}
+        <WeeklyExpertBadges family={family} profile={profile} />
+      </div>
+    </div>
+  );
+};
+
+const HarmonyRadar = ({ family, tasks }: { profile: UserProfile, family: UserProfile[], tasks: Task[] }) => {
+  const children = family.filter(f => f.role === 'child');
+  const childrenTaskIds = children.map(c => c.uid);
+  const relevantTasks = tasks.filter(t => childrenTaskIds.includes(t.assignedTo));
+  
+  const completedTasks = relevantTasks.filter(t => t.status === 'approved' || t.status === 'completed');
+  const totalTasks = relevantTasks.length;
+  
+  const score = totalTasks > 0 ? Math.round((completedTasks.length / totalTasks) * 100) : 100;
+  
+  let status = "مستقر جداً";
+  let colorClass = "bg-green-100 text-green-600";
+  let message = "يبدو أن الجميع أنجز مهامه اليوم بحماس! أتوقع طاقة إيجابية عالية غداً. أقترح جلسة لعب جماعية في المساء.";
+  let radarColor = "bg-purple-500";
+  let radarPulse = "bg-purple-500/5";
+
+  if (score >= 90) {
+    status = "مثالي ✨";
+    colorClass = "bg-green-100 text-green-600";
+    message = "إنجاز استثنائي اليوم! التناغم العائلي في قمته. وقت مثالي لمكافأة جماعية أو مغامرة عائلية صغيرة.";
+  } else if (score >= 70) {
+    status = "إيجابي 👍";
+    colorClass = "bg-blue-100 text-blue-600";
+    message = "الإنتاجية جيدة والروح مرتفعة. استمروا بهذا الحماس، والمساء سيكون هادئاً وممتعاً للجميع.";
+    radarColor = "bg-blue-500";
+    radarPulse = "bg-blue-500/5";
+  } else if (score >= 40) {
+    status = "متوسط 🌤️";
+    colorClass = "bg-amber-100 text-amber-600";
+    message = "هناك بعض المهام العالقة. ربما نحتاج لجرعة تشجيع بسيطة أو تعاون مشترك لإنهاء اليوم بنجاح.";
+    radarColor = "bg-amber-500";
+    radarPulse = "bg-amber-500/5";
+  } else {
+    status = "متعب 😴";
+    colorClass = "bg-rose-100 text-rose-600";
+    message = "يبدو أن الجميع متعب اليوم، أقترح غداً جلسة هادئة لمشاهدة فيلم عائلي بدلاً من المهام الشاقة لضمان التوازن النفسي.";
+    radarColor = "bg-rose-500";
+    radarPulse = "bg-rose-500/5";
+  }
+
+  return (
+    <section className="bg-white p-6 rounded-[2.5rem] border border-summer-primary/10 shadow-xl relative overflow-hidden">
+      <div className={cn("absolute -top-10 -right-10 w-40 h-40 rounded-full animate-pulse", radarPulse)} />
+      <div className="relative z-10">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center text-white shadow-lg", radarColor)}>
+              <Radar size={20} className="animate-spin-slow" />
+            </div>
+            <div>
+              <h3 className="text-sm font-black text-summer-text tracking-tighter">رادار المشاعر المتوقع 🌈</h3>
+              <p className="text-[9px] text-summer-text/40 font-bold uppercase tracking-widest">Family Harmony Radar</p>
+            </div>
+          </div>
+          <div className={cn("px-3 py-1 rounded-full text-[9px] font-black uppercase", colorClass)}>{status}</div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+          <div className="space-y-4">
+            <div className={cn(
+              "p-4 rounded-3xl border italic text-[11px] font-bold leading-relaxed",
+              score >= 70 ? "bg-purple-50 border-purple-100 text-purple-700" : 
+              score >= 40 ? "bg-amber-50 border-amber-100 text-amber-700" : 
+              "bg-rose-50 border-rose-100 text-rose-700"
+            )}>
+              "{message}"
+            </div>
+            <div className="flex gap-2">
+              <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div className={cn("h-full transition-all duration-1000", radarColor)} style={{ width: `${score}%` }} />
+              </div>
+              <span className={cn("text-[10px] font-black", radarColor.replace('bg-', 'text-'))}>{score}% تناغم</span>
+            </div>
+          </div>
+          <div className="flex justify-center md:justify-end gap-3 text-2xl">
+             {score >= 80 ? '🥳' : score >= 60 ? '😊' : score >= 40 ? '😐' : '😴'}
+             <div className={cn("w-12 h-12 rounded-2xl flex items-center justify-center shadow-sm", 
+               score >= 70 ? "bg-amber-100 text-amber-600" : "bg-blue-100 text-blue-600"
+             )}>
+                <Smile size={24} />
+             </div>
+             <div className="w-12 h-12 rounded-2xl bg-indigo-100 flex items-center justify-center text-indigo-600 shadow-sm">
+                <Waves size={24} />
+             </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+};
+
+const FamilyStoryWeaver = ({ profile, tasks }: { profile: UserProfile, tasks: Task[] }) => {
+  const completedToday = tasks.filter(t => t.status === 'approved').slice(0, 2);
+  
+  return (
+    <section className="bg-summer-card p-6 rounded-[2.5rem] border border-white/40 shadow-xl relative overflow-hidden group">
+      <div className="absolute top-0 right-0 p-4 opacity-[0.03] group-hover:rotate-12 transition-transform">
+        <BookOpen size={80} />
+      </div>
+      <div className="flex items-center gap-3 mb-4">
+        <div className="w-10 h-10 bg-indigo-500 rounded-xl flex items-center justify-center text-white shadow-lg">
+          <BookOpen size={20} />
+        </div>
+        <h3 className="text-sm font-black text-summer-text">حكواتي العائلة الذكي 📖</h3>
+      </div>
+      <p className="text-[10px] text-summer-text/60 mb-4 font-bold leading-relaxed">
+        تحويل إنجازات اليوم إلى قصص خيالية أبطالها أطفالك!
+      </p>
+      
+      {completedToday.length > 0 ? (
+        <div className="space-y-3">
+          <div className="p-4 rounded-2xl bg-white/40 border border-white/60">
+            <p className="text-[10px] font-bold text-indigo-700 mb-1">قصة الليلة المقترحة:</p>
+            <p className="text-[11px] text-summer-text leading-relaxed italic">
+              "كان يا مكان، وفي قلعة آل خليل، قام الفارس {completedToday[0].assignedToName} بمهمة عظيمة وهي {completedToday[0].title}..."
+            </p>
+          </div>
+          <button className="w-full py-3 bg-white border border-indigo-100 text-indigo-600 rounded-2xl text-[10px] font-black hover:bg-indigo-50 transition-colors shadow-sm">
+            استماع للقصة كاملة 🎙️
+          </button>
+        </div>
+      ) : (
+        <div className="p-6 text-center border-2 border-dashed border-summer-primary/10 rounded-3xl">
+           <p className="text-[10px] text-summer-text/40 font-bold">أكمل مهامك اليوم لتظهر في قصة الليلة!</p>
+        </div>
+      )}
+    </section>
+  );
+};
+
+const FlashInstantQuest = ({ isParent }: { profile: UserProfile, isParent: boolean }) => {
+  return (
+    <section className="bg-summer-accent/10 p-6 rounded-[2.5rem] border border-summer-accent/20 shadow-xl relative overflow-hidden group">
+      <div className="absolute top-0 right-0 p-4 opacity-[0.03] group-hover:scale-110 transition-transform">
+        <Zap size={80} />
+      </div>
+      <div className="flex items-center gap-3 mb-4">
+        <div className="w-10 h-10 bg-summer-accent rounded-xl flex items-center justify-center text-white shadow-lg">
+          <Zap size={20} className="animate-pulse" />
+        </div>
+        <h3 className="text-sm font-black text-summer-text">تحدي "فلاش" المفاجئ ⚡</h3>
+      </div>
+      
+      <div className="bg-white/40 p-4 rounded-2xl border border-white/60 mb-4">
+        <div className="flex justify-between items-center mb-2">
+          <span className="text-[9px] font-black text-summer-accent flex items-center gap-1">
+            <Clock size={10} /> ينتهي خلال 60 ثانية
+          </span>
+          <span className="text-[10px] font-black text-summer-text">العبرة: بر الوالدين</span>
+        </div>
+        <p className="text-xs font-bold text-summer-text leading-relaxed">
+          "أسرع! قبل انتهاء العداد.. اذهب وقبّل يد والديك وأخبرهما بسر تحبه فيهما!"
+        </p>
+      </div>
+
+      <button className="w-full py-3 bg-summer-accent text-white rounded-2xl text-xs font-black shadow-lg hover:scale-[1.02] active:scale-95 transition-all">
+        تم الإنجاز! (كسب 10 توكن)
+      </button>
+    </section>
+  );
+};
+
+const TreasureMapPreview = ({ tasks }: { profile: UserProfile, tasks: Task[] }) => {
+  return (
+    <section className="space-y-4">
+      <div className="flex items-center gap-3 px-1">
+        <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center text-white shadow-lg">
+          <Map size={20} />
+        </div>
+        <div>
+          <h3 className="text-sm font-black text-summer-text tracking-tighter">خريطة الكنز التفاعلية 🗺️</h3>
+          <p className="text-[9px] text-summer-text/40 font-bold uppercase tracking-widest">Interactive Treasure Map</p>
+        </div>
+      </div>
+
+      <div className="bg-summer-card p-6 rounded-[2.5rem] border border-white/40 shadow-xl overflow-x-auto no-scrollbar">
+        <div className="flex items-center gap-4 min-w-max pb-2">
+           <div className="w-16 h-16 rounded-3xl bg-emerald-100 border-2 border-emerald-500 flex items-center justify-center text-emerald-600 relative shrink-0">
+             <Target size={24} />
+             <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-emerald-500 rounded-full border-2 border-white flex items-center justify-center text-[10px] text-white font-black">✓</div>
+           </div>
+           
+           <div className="w-12 h-1 bg-emerald-200 rounded-full shrink-0" />
+
+           {[1, 2, 3].map((i) => (
+             <React.Fragment key={i}>
+                <div className="w-16 h-16 rounded-3xl bg-white/10 border-2 border-dashed border-emerald-500/30 flex items-center justify-center text-emerald-500/40 relative shrink-0">
+                  <span className="text-[10px] font-black">المهمة {i+1}</span>
+                </div>
+                <div className="w-12 h-1 bg-emerald-100 rounded-full shrink-0" />
+             </React.Fragment>
+           ))}
+
+           <div className="w-20 h-20 rounded-[2rem] summer-gradient flex items-center justify-center text-white shadow-xl relative shrink-0 animate-bounce">
+             <Flag size={32} />
+             <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-amber-400 px-3 py-1 rounded-full text-[9px] font-black shadow-lg">الكنز الكبير</div>
+           </div>
+        </div>
+        <p className="mt-4 text-[10px] text-summer-text/40 font-bold text-center">أكمل 4 مهام متبقية لفتح صندوق الكنز الرقمي!</p>
+      </div>
+    </section>
+  );
+};
+
+const AINegotiator = ({ profile }: { profile: UserProfile }) => {
+  return (
+    <section className="bg-white p-6 rounded-[2.5rem] border border-summer-primary/10 shadow-xl relative overflow-hidden group">
+      <div className="absolute bottom-0 right-0 p-4 opacity-[0.03] group-hover:-translate-y-2 transition-transform">
+        <Scale size={80} />
+      </div>
+      <div className="flex items-center gap-3 mb-4">
+        <div className="w-10 h-10 bg-blue-500 rounded-xl flex items-center justify-center text-white shadow-lg">
+          <Handshake size={20} />
+        </div>
+        <h3 className="text-sm font-black text-summer-text">المفاوض الذكي 🤝</h3>
+      </div>
+      
+      <div className="space-y-4">
+        <div className="p-4 rounded-3xl bg-blue-50 border border-blue-100">
+          <p className="text-[10px] font-bold text-blue-700 flex items-center gap-2 mb-2">
+            <Sparkles size={12} /> عرض تفاوضي جديد:
+          </p>
+          <p className="text-[11px] text-summer-text leading-relaxed font-medium">
+            "ناقصك 50 توكن لشراء اللعبة؟ اقترح عليك 'عقد التفوق': حل 5 تمارين ذكاء إضافية وسأمنحك خصم 20%!"
+          </p>
+        </div>
+        <button className="w-full py-3 bg-blue-500 text-white rounded-2xl text-xs font-black shadow-lg hover:shadow-blue-500/40 active:scale-95 transition-all">
+          قبول العرض وبدء المفاوضة
+        </button>
+      </div>
+    </section>
+  );
+};
+
+const WeeklyExpertBadges = ({ family, profile }: { family: UserProfile[], profile: UserProfile }) => {
+  const [badges, setBadges] = useState<Badge[]>([]);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [editingBadge, setEditingBadge] = useState<Badge | null>(null);
+  const [loading, setLoading] = useState(false);
+  
+  const isParent = profile.role === 'parent';
+  const children = family.filter(f => f.role === 'child');
+
+  const [formData, setFormData] = useState({
+    name: '',
+    childId: '',
+    icon: '🏆',
+    color: 'bg-amber-100 text-amber-600'
+  });
+
+  const badgeIcons = ['🏆', '🧮', '🏠', '🎨', '🧪', '📚', '⚽', '♟️', '💻', '🗣️', '🧹', '🍳', '🧩', '🚀', '💡', '🛡️', '🧘', '🌿', '🎸', '🎭', '🌟', '💎', '🔥', '🧗', '🎤'];
+  const badgeColors = [
+    { label: 'amber', value: 'bg-amber-100 text-amber-600' },
+    { label: 'indigo', value: 'bg-indigo-100 text-indigo-600' },
+    { label: 'emerald', value: 'bg-emerald-100 text-emerald-600' },
+    { label: 'rose', value: 'bg-rose-100 text-rose-600' },
+    { label: 'sky', value: 'bg-sky-100 text-sky-600' },
+    { label: 'orange', value: 'bg-orange-100 text-orange-600' },
+    { label: 'purple', value: 'bg-purple-100 text-purple-600' },
+  ];
+
+  useEffect(() => {
+    const q = query(collection(db, 'badges'), orderBy('awardedAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const badgesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Badge));
+      setBadges(badgesData);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const selectedChild = children.find(c => c.uid === formData.childId);
+      const data = {
+        name: formData.name,
+        childId: formData.childId,
+        childName: selectedChild?.displayName || 'طفل',
+        icon: formData.icon,
+        color: formData.color,
+        awardedAt: serverTimestamp()
+      };
+
+      if (editingBadge) {
+        await updateDoc(doc(db, 'badges', editingBadge.id), data);
+      } else {
+        await addDoc(collection(db, 'badges'), data);
+      }
+      
+      setShowAddForm(false);
+      setEditingBadge(null);
+      setFormData({ name: '', childId: '', icon: '🏆', color: 'bg-amber-100 text-amber-600' });
+    } catch (error) {
+      console.error("Error saving badge:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (window.confirm('هل أنت متأكد من حذف هذا الوسام؟')) {
+      await deleteDoc(doc(db, 'badges', id));
+    }
+  };
+
+  return (
+    <section className="bg-summer-card p-6 rounded-[2.5rem] border border-white/40 shadow-xl relative overflow-hidden">
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-orange-500 rounded-xl flex items-center justify-center text-white shadow-lg">
+            <Award size={20} />
+          </div>
+          <h3 className="text-sm font-black text-summer-text">وسام خبير الأسبوع 🏅</h3>
+        </div>
+        {isParent && (
+          <button 
+            onClick={() => setShowAddForm(!showAddForm)}
+            className="w-8 h-8 rounded-full bg-orange-500 text-white flex items-center justify-center shadow-lg hover:rotate-90 transition-transform"
+          >
+            <Plus size={18} />
+          </button>
+        )}
+      </div>
+
+      <AnimatePresence>
+        {showAddForm && (
+          <motion.div 
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden mb-6"
+          >
+            <form onSubmit={handleSubmit} className="bg-white/40 p-4 rounded-3xl border border-white/60 space-y-4">
+              <input 
+                type="text"
+                placeholder="اسم الوسام (مثال: عبقري الرياضيات)"
+                required
+                className="w-full bg-white border-0 rounded-2xl p-3 text-xs font-bold"
+                value={formData.name}
+                onChange={e => setFormData({...formData, name: e.target.value})}
+              />
+              
+              <select 
+                required
+                className="w-full bg-white border-0 rounded-2xl p-3 text-xs font-bold"
+                value={formData.childId}
+                onChange={e => setFormData({...formData, childId: e.target.value})}
+              >
+                <option value="">اختر الطفل</option>
+                {children.map(child => (
+                  <option key={child.uid} value={child.uid}>{child.displayName}</option>
+                ))}
+              </select>
+
+              <div className="space-y-2">
+                <p className="text-[10px] font-black text-summer-text/40 px-1">اختر الأيقونة</p>
+                <div className="flex flex-wrap gap-2 p-1">
+                  {badgeIcons.map(icon => (
+                    <button
+                      key={icon}
+                      type="button"
+                      onClick={() => setFormData({...formData, icon})}
+                      className={cn(
+                        "w-8 h-8 rounded-lg flex items-center justify-center text-lg transition-all",
+                        formData.icon === icon ? "bg-orange-500 scale-110 shadow-md" : "bg-white hover:bg-orange-100"
+                      )}
+                    >
+                      {icon}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-[10px] font-black text-summer-text/40 px-1">اختر اللون</p>
+                <div className="flex flex-wrap gap-2">
+                  {badgeColors.map(color => (
+                    <button
+                      key={color.value}
+                      type="button"
+                      onClick={() => setFormData({...formData, color: color.value})}
+                      className={cn(
+                        "px-3 py-1.5 rounded-full text-[9px] font-black transition-all",
+                        color.value,
+                        formData.color === color.value ? "ring-2 ring-orange-500 ring-offset-2" : "opacity-60 shadow-sm"
+                      )}
+                    >
+                      {color.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button 
+                  type="submit"
+                  disabled={loading}
+                  className="flex-1 bg-orange-500 text-white rounded-2xl py-3 text-xs font-black shadow-lg"
+                >
+                  {editingBadge ? 'تحديث الوسام' : 'منح الوسام'}
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => {
+                    setShowAddForm(false);
+                    setEditingBadge(null);
+                  }}
+                  className="px-4 bg-gray-100 text-gray-500 rounded-2xl text-xs font-black"
+                >
+                   إلغاء
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="grid grid-cols-2 gap-3">
+        {badges.map((badge) => (
+          <div key={badge.id} className="bg-white/60 p-4 rounded-3xl border border-white/80 text-center relative group">
+            {isParent && (
+              <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                <button 
+                  onClick={() => {
+                    setEditingBadge(badge);
+                    setFormData({
+                      name: badge.name,
+                      childId: badge.childId,
+                      icon: badge.icon,
+                      color: badge.color
+                    });
+                    setShowAddForm(true);
+                  }}
+                  className="w-6 h-6 rounded-full bg-blue-500 text-white flex items-center justify-center shadow-sm hover:scale-110"
+                >
+                  <Edit2 size={12} />
+                </button>
+                <button 
+                  onClick={() => handleDelete(badge.id)}
+                  className="w-6 h-6 rounded-full bg-rose-500 text-white flex items-center justify-center shadow-sm hover:scale-110"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            )}
+            <div className="text-3xl mb-2 transition-transform group-hover:scale-125 duration-500">{badge.icon}</div>
+            <p className="text-[11px] font-black text-summer-text mb-1">{badge.name}</p>
+            <span className={cn("text-[9px] font-black px-2 py-0.5 rounded-full", badge.color)}>
+              {badge.childName}
+            </span>
+          </div>
+        ))}
+        {badges.length === 0 && (
+          <div className="col-span-2 py-8 text-center border-2 border-dashed border-orange-500/10 rounded-3xl">
+             <p className="text-[10px] text-summer-text/40 font-bold italic">لا توجد أوسمة ممنوحة هذا الأسبوع</p>
+          </div>
+        )}
+      </div>
+      <p className="mt-4 text-[9px] text-summer-text/40 font-bold text-center italic">يتم منح الأوسمة لإبراز مهارات وإنجازات الأطفال المميزة</p>
+    </section>
   );
 };
 

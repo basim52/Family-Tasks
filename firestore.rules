@@ -146,6 +146,15 @@ service cloud.firestore {
         && data.issuedAt == request.time;
     }
 
+    function isValidBadge(data) {
+      return data.keys().hasAll(['name', 'childId', 'childName', 'icon', 'color', 'awardedAt'])
+        && data.name is string && data.name.size() <= 200
+        && data.childId is string
+        && data.childName is string
+        && data.icon is string
+        && data.color is string;
+    }
+
     // Collection Rules
 
     match /appSettings/{settingId} {
@@ -263,6 +272,13 @@ service cloud.firestore {
     match /cheques/{chequeId} {
       allow get, list: if isSignedIn();
       allow create: if isParent() && isValidCheque(request.resource.data);
+      allow delete: if isParent();
+    }
+
+    match /badges/{badgeId} {
+      allow get, list: if isSignedIn();
+      allow create: if isParent() && isValidBadge(request.resource.data);
+      allow update: if isParent() && isValidBadge(request.resource.data);
       allow delete: if isParent();
     }
   }
