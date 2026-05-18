@@ -27,6 +27,7 @@ export function useAuth() {
             photoURL: authUser.photoURL || '',
             role: isAdmin ? 'parent' : 'child',
             points: 0,
+            totalPointsEarned: 0,
             currencyBalance: 0,
             tokensBalance: 0,
             createdAt: serverTimestamp(),

@@ -37,12 +37,13 @@ export interface Task {
   points: number;
   rewardType: 'points' | 'tokens';
   rewardAmount: number;
-  status: 'pending' | 'completed' | 'approved' | 'rejected';
+  status: 'pending' | 'completed' | 'approved' | 'rejected' | 'expired';
   assignedTo: string;
   assignedToName: string;
   createdBy: string;
-  startTime?: string;
-  endTime?: string;
+  createdByName?: string;
+  startTime?: any;
+  endTime?: any;
   imageUrl?: string;
   createdAt: any;
   completedAt?: any;

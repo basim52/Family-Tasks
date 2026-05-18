@@ -44,16 +44,17 @@ service cloud.firestore {
         && data.uid == request.auth.uid
         && data.role in ['parent', 'child']
         && data.points is number
-        && data.points >= 0;
+        && data.points >= 0
+        && (!data.keys().contains('totalPointsEarned') || data.totalPointsEarned is number)
+        && (!data.keys().contains('tokensBalance') || data.tokensBalance is number);
     }
 
     function isValidTask(data) {
-      return data.keys().hasAll(['title', 'points', 'status', 'createdBy'])
+      return data.keys().hasAll(['title', 'status', 'createdBy'])
         && data.title is string && data.title.size() <= 200
-        && data.points is number && data.points >= 0
-        && data.status in ['pending', 'completed', 'approved']
-        && (!data.keys().contains('startTime') || (data.startTime is string && data.startTime.size() <= 20))
-        && (!data.keys().contains('endTime') || (data.endTime is string && data.endTime.size() <= 20));
+        && data.status in ['pending', 'completed', 'approved', 'rejected', 'expired']
+        && (data.keys().contains('points') ? (data.points is number && data.points >= 0) : true)
+        && (data.keys().contains('rewardAmount') ? (data.rewardAmount is number && data.rewardAmount >= 0) : true);
     }
 
     function isValidTransaction(data) {
@@ -164,6 +165,12 @@ service cloud.firestore {
         && (data.createdAt == request.time || data.createdAt == null);
     }
 
+    function isValidSpinLog(data) {
+      return data.keys().hasAll(['userName', 'userId', 'resultLabel', 'timestamp'])
+        && data.userId == request.auth.uid
+        && (data.timestamp == request.time || data.timestamp == null);
+    }
+
     // Collection Rules
 
     match /appSettings/{settingId} {
@@ -175,16 +182,17 @@ service cloud.firestore {
       allow get, list: if isSignedIn();
       allow create: if isUser(userId) && isValidUser(request.resource.data);
       allow update: if (isUser(userId) && (
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL']) ||
-          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['points']) && request.resource.data.points < resource.data.points) ||
-          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['tokensBalance']) && request.resource.data.tokensBalance < resource.data.get('tokensBalance', 0))
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'displayName', 'photoURL', 'theme', 'customBgColor', 'customAccentColor',
+            'points', 'tokensBalance', 'totalPointsEarned', 'lastLuckySpinAt', 'lastTreasureClaimedCount'
+          ])
         ))
         || isParent();
     }
 
     match /tasks/{taskId} {
       allow get, list: if isSignedIn();
-      allow create: if isParent() && isValidTask(request.resource.data);
+      allow create: if isSignedIn() && isValidTask(request.resource.data) && (isParent() || request.resource.data.status == 'pending');
       allow update: if isParent() 
         || (isSignedIn() && resource.data.assignedTo == request.auth.uid 
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'completedAt', 'completedImageUrl'])
@@ -295,6 +303,11 @@ service cloud.firestore {
       allow get, list: if isSignedIn();
       allow create: if isParent() && isValidSilenceSession(request.resource.data);
       allow delete: if isParent();
+    }
+
+    match /spinLogs/{logId} {
+      allow read: if isParent();
+      allow create: if isSignedIn() && isValidSpinLog(request.resource.data);
     }
   }
 }

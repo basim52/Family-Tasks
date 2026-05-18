@@ -69,7 +69,7 @@ import {
   Volume2,
   VolumeX
 } from 'lucide-react';
-import { auth, db, storage } from './lib/firebase';
+import { auth, db, storage, handleFirestoreError, OperationType } from './lib/firebase';
 import { useAuth } from './hooks/useAuth';
 import { Landing } from './pages/Landing';
 import { WalletCard } from './components/wallet/WalletCard';
@@ -100,43 +100,6 @@ import { twMerge } from 'tailwind-merge';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
-}
-
-enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
-
-interface FirestoreErrorInfo {
-  error: string;
-  operationType: OperationType;
-  path: string | null;
-  authInfo: {
-    userId?: string | null;
-    email?: string | null;
-    emailVerified?: boolean | null;
-    isAnonymous?: boolean | null;
-  }
-}
-
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-    },
-    operationType,
-    path
-  };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  return errInfo;
 }
 
 async function safeFetch(url: string, options: RequestInit) {
@@ -504,6 +467,16 @@ const Header = ({ title, profile, actions }: { title: string, profile: UserProfi
       </div>
     </div>
     <div className="flex gap-4 items-center">
+      <div className="flex items-center gap-2 bg-brand-bg px-3 py-1.5 rounded-full border border-white/20 shadow-sm">
+        <div className="flex items-center gap-1.5 border-l border-white/20 pl-2">
+           <div className="w-5 h-5 bg-amber-400 rounded-full flex items-center justify-center text-white text-[10px]">🪙</div>
+           <span className="text-xs font-black text-brand-text">{(profile.points || 0).toLocaleString()}</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+           <div className="w-5 h-5 bg-brand-accent rounded-full flex items-center justify-center text-white text-[10px]">💎</div>
+           <span className="text-xs font-black text-brand-text">{(profile.tokensBalance || 0).toLocaleString()}</span>
+        </div>
+      </div>
       <div className="hidden md:block text-left text-xs">
         <p className="font-semibold text-brand-text">{profile.displayName}</p>
         <p className="text-brand-accent opacity-70">{profile.role === 'parent' ? 'مسؤول النظام' : 'عضو عائلي'}</p>
@@ -1163,34 +1136,53 @@ const LuckyWheel = ({ profile }: { profile: UserProfile }) => {
   useEffect(() => {
     if (profile.lastLuckySpinAt) {
       try {
-        const lastSpin = profile.lastLuckySpinAt.toDate();
+        let lastSpin: Date;
+        if (typeof profile.lastLuckySpinAt.toDate === 'function') {
+          lastSpin = profile.lastLuckySpinAt.toDate();
+        } else {
+          // Fallback if it's a seconds/nanoseconds object
+          lastSpin = new Date(profile.lastLuckySpinAt.seconds * 1000);
+        }
+        
         const now = new Date();
-        if (lastSpin.toDateString() === now.toDateString()) {
+        const isSameDay = 
+          lastSpin.getDate() === now.getDate() &&
+          lastSpin.getMonth() === now.getMonth() &&
+          lastSpin.getFullYear() === now.getFullYear();
+          
+        if (isSameDay) {
           setHasSpunToday(true);
+        } else {
+          setHasSpunToday(false);
         }
       } catch (e) {
-        console.error("Date parsing error", e);
+        console.error("Date parsing error in LuckyWheel", e);
       }
+    } else {
+      setHasSpunToday(false);
     }
   }, [profile.lastLuckySpinAt]);
 
+  const isSpinningRef = useRef(false);
+
   const spin = async () => {
-    if (spinning || hasSpunToday) return;
+    if (spinning || hasSpunToday || isSpinningRef.current) return;
 
     // Final security check
     const now = new Date();
     if (profile.lastLuckySpinAt) {
-       const lastSpin = profile.lastLuckySpinAt.toDate();
-       if (lastSpin.toDateString() === now.toDateString()) {
+       const lastSpin = profile.lastLuckySpinAt.toDate ? profile.lastLuckySpinAt.toDate() : new Date(profile.lastLuckySpinAt.seconds * 1000);
+       if (lastSpin.getDate() === now.getDate() && lastSpin.getMonth() === now.getMonth() && lastSpin.getFullYear() === now.getFullYear()) {
          setHasSpunToday(true);
          return;
        }
     }
 
+    isSpinningRef.current = true;
     setHasSpunToday(true); 
     setSpinning(true);
 
-    const spinCount = 5 + Math.floor(Math.random() * 5);
+    const spinCount = 8 + Math.floor(Math.random() * 5); // Increased rotations for better feel
     const randomSegment = Math.floor(Math.random() * segments.length);
     const segmentAngle = 360 / segments.length;
     const targetRotation = rotation + (spinCount * 360) + (randomSegment * segmentAngle);
@@ -1209,10 +1201,8 @@ const LuckyWheel = ({ profile }: { profile: UserProfile }) => {
 
       if (result.type === "points") {
         updateData.points = increment(result.value);
-        if (profile.totalPointsEarned !== undefined) {
-           updateData.totalPointsEarned = increment(result.value);
-        }
-      } else {
+        updateData.totalPointsEarned = increment(result.value);
+      } else if (result.type === "tokens") {
         updateData.tokensBalance = increment(result.value);
       }
 
@@ -1226,14 +1216,20 @@ const LuckyWheel = ({ profile }: { profile: UserProfile }) => {
         timestamp: serverTimestamp()
       });
     } catch (err) {
-      console.error("Spin save error:", err);
+      handleFirestoreError(err, OperationType.WRITE, `users/${profile.uid} or spinLogs`);
+      // If error, reset to allow retry if it didn't actually save
+      setHasSpunToday(false);
+      setSpinning(false);
+      isSpinningRef.current = false;
+      return;
     }
 
     // Show result after animation
     setTimeout(() => {
       setShowResult(result);
       setSpinning(false);
-    }, 4000);
+      isSpinningRef.current = false;
+    }, 4500);
   };
 
   return (
@@ -2886,7 +2882,16 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
     };
   }, [profile.uid, isParent]);
 
-  const activeTasks = tasks.filter(t => t.status !== 'approved');
+  const activeTasks = tasks.map(t => {
+    if (t.status === 'pending' && t.endTime) {
+      const end = typeof t.endTime === 'string' ? new Date(t.endTime) : t.endTime.toDate?.() || new Date(t.endTime.seconds * 1000);
+      if (end < new Date()) {
+        return { ...t, status: 'expired' as const };
+      }
+    }
+    return t;
+  }).filter(t => t.status !== 'approved');
+
   const archivedTasks = tasks.filter(t => t.status === 'approved');
   const displayTasks = showArchive ? archivedTasks : activeTasks;
 
@@ -2896,8 +2901,8 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
       const assignedUser = family.find(f => f.uid === newAssigned);
       await addDoc(collection(db, 'tasks'), {
         title: newTitle,
-        description: 'مهمة عائلية من الأهل',
-        points: Number(newRewardAmount), // For backward compatibility
+        description: isParent ? 'مهمة عائلية من الأهل' : `طلب مهمة من ${profile.displayName} 🌟`,
+        points: Number(newRewardAmount),
         rewardType: newRewardType,
         rewardAmount: Number(newRewardAmount),
         status: 'pending',
@@ -2906,17 +2911,21 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
         startTime: newStartTime || null,
         endTime: newEndTime || null,
         createdBy: profile.uid,
+        createdByName: profile.displayName,
         createdAt: serverTimestamp(),
       });
 
-      // Notify Child
+      // Notify Target Member
       if (newAssigned) {
-        await sendNotification(newAssigned, 'مهمة جديدة! 🚀', `لقد تم تكليفك بمهمة: ${newTitle} والمكافأة ${newRewardAmount} ${newRewardType === 'points' ? 'نقطة' : 'توكن'} ✨`, 'task');
+        const title = isParent ? 'مهمة جديدة! 🚀' : 'طلب مساعدة/مهمة! 🤝';
+        const body = `لقد تم تكليفك بمهمة من ${profile.displayName}: ${newTitle} والمكافأة ${newRewardAmount} ${newRewardType === 'points' ? 'نقطة' : 'توكن'} ✨`;
+        await sendNotification(newAssigned, title, body, 'task');
       }
 
       setNewTitle('');
       setNewStartTime('');
       setNewEndTime('');
+      setNewAssigned('');
       setShowAdd(false);
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'tasks');
@@ -3051,13 +3060,16 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
           </div>
         </div>
 
-        {isParent && !showArchive && (
+        {!showArchive && (
           <button 
             onClick={() => setShowAdd(!showAdd)}
-            className="w-full bg-brand-primary text-white rounded-2xl py-5 font-bold flex items-center justify-center gap-3 shadow-xl hover:bg-brand-primary/90 transition-all active:scale-95"
+            className={cn(
+              "w-full rounded-2xl py-5 font-bold flex items-center justify-center gap-3 shadow-xl transition-all active:scale-95",
+              isParent ? "bg-brand-primary text-white hover:bg-brand-primary/90" : "bg-brand-accent text-white hover:bg-brand-accent/90"
+            )}
           >
             <PlusCircle size={24} />
-            <span className="text-lg">إضافة مهمة جديدة</span>
+            <span className="text-lg">{isParent ? 'إضافة مهمة جديدة' : 'طلب مهمة من عضو آخر 🤝'}</span>
           </button>
         )}
 
@@ -3111,8 +3123,8 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
                   onChange={(e) => setNewAssigned(e.target.value)}
                 >
                   <option value="" className="bg-brand-card text-brand-text">تعيين إلى...</option>
-                  {family.filter(f => f.role === 'child').map(f => (
-                    <option key={f.uid} value={f.uid} className="bg-brand-card text-brand-text">{f.displayName}</option>
+                  {family.filter(f => f.uid !== profile.uid).map(f => (
+                    <option key={f.uid} value={f.uid} className="bg-brand-card text-brand-text">{f.displayName} ({f.role === 'parent' ? 'أب/أم' : 'عضو'})</option>
                   ))}
                 </select>
                 
@@ -3120,16 +3132,16 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
                   <div className="flex-1">
                     <label className="text-[10px] font-black text-brand-text/40 uppercase tracking-widest mb-1 block px-1">وقت البدء</label>
                     <input 
-                      type="time"
+                      type="datetime-local"
                       className="w-full bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-brand-text outline-none focus:border-brand-accent transition-colors"
                       value={newStartTime}
                       onChange={(e) => setNewStartTime(e.target.value)}
                     />
                   </div>
                   <div className="flex-1">
-                    <label className="text-[10px] font-black text-brand-text/40 uppercase tracking-widest mb-1 block px-1">وقت الانتهاء</label>
+                    <label className="text-[10px] font-black text-brand-text/40 uppercase tracking-widest mb-1 block px-1">وقت الانتهاء (الإلغاء التلقائي)</label>
                     <input 
-                      type="time"
+                      type="datetime-local"
                       className="w-full bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-brand-text outline-none focus:border-brand-accent transition-colors"
                       value={newEndTime}
                       onChange={(e) => setNewEndTime(e.target.value)}
@@ -3220,7 +3232,7 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
                   <div className="flex-1">
                     <label className="text-[10px] font-black text-summer-text/40 uppercase tracking-widest mb-1 block px-1">وقت البدء</label>
                     <input 
-                      type="time"
+                      type="datetime-local"
                       className="w-full bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-summer-text outline-none focus:border-summer-accent transition-colors"
                       value={editStartTime}
                       onChange={(e) => setEditStartTime(e.target.value)}
@@ -3229,7 +3241,7 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
                   <div className="flex-1">
                     <label className="text-[10px] font-black text-summer-text/40 uppercase tracking-widest mb-1 block px-1">وقت الانتهاء</label>
                     <input 
-                      type="time"
+                      type="datetime-local"
                       className="w-full bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-summer-text outline-none focus:border-summer-accent transition-colors"
                       value={editEndTime}
                       onChange={(e) => setEditEndTime(e.target.value)}
@@ -3262,18 +3274,26 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
                     <CheckSquare size={28} />
                   </div>
                   <h4 className="text-xl font-bold text-summer-text mb-1 group-hover:text-summer-accent transition-colors">{task.title}</h4>
-                  <p className="text-xs text-summer-text/50 line-clamp-2">عن طريق: {family.find(f => f.uid === task.createdBy)?.displayName || 'الأهل'}</p>
+                  <p className="text-xs text-summer-text/50 line-clamp-2">بواسطة: {task.createdByName || family.find(f => f.uid === task.createdBy)?.displayName || 'الأهل'}</p>
                   {(task.startTime || task.endTime) && (
-                    <div className="mt-2 flex items-center gap-2 text-[10px] font-bold text-summer-accent">
-                      <span className="flex items-center gap-1">
-                        <Play size={10} />
-                        {task.startTime || '--:--'}
-                      </span>
-                      <span>→</span>
-                      <span className="flex items-center gap-1">
-                        <Pause size={10} />
-                        {task.endTime || '--:--'}
-                      </span>
+                    <div className="mt-2 flex flex-col gap-1">
+                      <div className="flex items-center gap-2 text-[10px] font-bold text-summer-accent">
+                        <span className="flex items-center gap-1">
+                          <Play size={10} />
+                          {task.startTime ? new Date(task.startTime).toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' }) : '--:--'}
+                        </span>
+                        <span>→</span>
+                        <span className="flex items-center gap-1">
+                          <Pause size={10} />
+                          {task.endTime ? new Date(task.endTime).toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' }) : '--:--'}
+                        </span>
+                      </div>
+                      {task.status === 'expired' && (
+                        <div className="flex items-center gap-1 text-[10px] font-black text-red-500 uppercase tracking-widest">
+                           <Clock size={10} />
+                           انتهى الوقت (تم الإلغاء)
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -3329,6 +3349,12 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
                   >
                     تأكيد الإنجاز 🧹
                   </button>
+                )}
+                {task.status === 'expired' && (
+                  <div className="flex-1 bg-red-500/10 text-red-600 py-4 rounded-2xl text-center font-bold text-xs border border-red-500/20 flex items-center justify-center gap-2 grayscale">
+                    <Clock size={14} />
+                    المهمة ملغاة (انتهى الوقت)
+                  </div>
                 )}
                 {task.status === 'completed' && !isParent && (
                    <div className="flex-1 bg-emerald-500/10 text-emerald-600 py-4 rounded-2xl text-center font-bold text-xs border border-emerald-500/20 flex items-center justify-center gap-2">
@@ -4220,6 +4246,7 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
 const SettingsPage = ({ profile }: { profile: UserProfile }) => {
   const [rate, setRate] = useState(0.25);
   const [saving, setSaving] = useState(false);
+  const [globalAppearance, setGlobalAppearance] = useState<any>(null);
   const isParent = profile.role === 'parent';
 
   useEffect(() => {
@@ -4230,6 +4257,12 @@ const SettingsPage = ({ profile }: { profile: UserProfile }) => {
     }
   }, [isParent]);
 
+  useEffect(() => {
+    return onSnapshot(doc(db, 'config', 'appearance'), (snap) => {
+      if (snap.exists()) setGlobalAppearance(snap.data());
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'config/appearance'));
+  }, []);
+
   const saveSettings = async () => {
     setSaving(true);
     await setDoc(doc(db, 'config', 'family_settings'), {
@@ -4239,25 +4272,37 @@ const SettingsPage = ({ profile }: { profile: UserProfile }) => {
     alert('تم حفظ الإعدادات بنجاح.');
   };
 
-  const updateTheme = async (theme: ThemeType) => {
+  const updateTheme = async (theme: ThemeType, isGlobal: boolean = false) => {
     try {
-      await updateDoc(doc(db, 'users', profile.uid), { theme });
+      if (isGlobal && isParent) {
+        await setDoc(doc(db, 'config', 'appearance'), { theme }, { merge: true });
+      } else {
+        await updateDoc(doc(db, 'users', profile.uid), { theme });
+      }
     } catch (err) {
       console.error(err);
     }
   };
 
-  const updateBgColor = async (color: string) => {
+  const updateBgColor = async (color: string, isGlobal: boolean = false) => {
     try {
-      await updateDoc(doc(db, 'users', profile.uid), { customBgColor: color });
+      if (isGlobal && isParent) {
+        await setDoc(doc(db, 'config', 'appearance'), { customBgColor: color }, { merge: true });
+      } else {
+        await updateDoc(doc(db, 'users', profile.uid), { customBgColor: color });
+      }
     } catch (err) {
       console.error(err);
     }
   };
 
-  const updateAccentColor = async (color: string) => {
+  const updateAccentColor = async (color: string, isGlobal: boolean = false) => {
     try {
-      await updateDoc(doc(db, 'users', profile.uid), { customAccentColor: color });
+      if (isGlobal && isParent) {
+        await setDoc(doc(db, 'config', 'appearance'), { customAccentColor: color }, { merge: true });
+      } else {
+        await updateDoc(doc(db, 'users', profile.uid), { customAccentColor: color });
+      }
     } catch (err) {
       console.error(err);
     }
@@ -4278,8 +4323,67 @@ const SettingsPage = ({ profile }: { profile: UserProfile }) => {
     <div className="pb-24 bg-brand-bg min-h-screen">
       <Header title="إعدادات الحساب" profile={profile} />
       <div className="p-6 space-y-8">
-        {/* Theme Settings - For Everyone */}
-        <section className="bg-brand-card p-6 rounded-[2.5rem] border border-white/20 space-y-6 shadow-xl">
+        {/* Family Appearance - For Parents ONLY */}
+        {isParent && (
+          <section className="bg-brand-card p-6 rounded-[2.5rem] border border-brand-accent/20 space-y-6 shadow-xl relative overflow-hidden">
+            <div className="absolute -top-10 -right-10 w-32 h-32 bg-brand-accent/10 rounded-full blur-3xl" />
+            <div className="flex items-center gap-3">
+               <div className="w-10 h-10 bg-brand-accent/10 rounded-2xl flex items-center justify-center text-brand-accent">
+                  <Star size={20} />
+               </div>
+               <div>
+                 <h3 className="font-black text-brand-text italic">مظهر العائلة العام (بصمتك الخاصة) 🎨</h3>
+                 <p className="text-[10px] text-brand-text/40 font-bold">تحكم في مظهر التطبيق لجميع أفراد العائلة مرة واحدة!</p>
+               </div>
+            </div>
+
+            <div className="space-y-6">
+              <div>
+                <h4 className="text-xs font-black text-brand-text mb-3">ثيم العائلة الموحد</h4>
+                <ThemeSelector 
+                  currentTheme={globalAppearance?.theme || 'summer'} 
+                  onSelect={(t) => updateTheme(t, true)} 
+                />
+              </div>
+
+              <div className="pt-4 border-t border-white/10 grid grid-cols-2 gap-4">
+                <div className="space-y-3">
+                  <h4 className="text-[10px] font-black text-brand-text opacity-60 uppercase">الخلفية (العائلة)</h4>
+                  <input 
+                    type="color"
+                    value={globalAppearance?.customBgColor || '#caf0f8'}
+                    onChange={(e) => updateBgColor(e.target.value, true)}
+                    className="w-full h-12 rounded-xl bg-white/10 border border-white/20 cursor-pointer"
+                  />
+                  <button 
+                    onClick={() => updateBgColor('', true)}
+                    className="text-[9px] font-black text-brand-accent hover:underline w-full text-center"
+                  >
+                    إعادة ضبط الخلفية
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  <h4 className="text-[10px] font-black text-brand-text opacity-60 uppercase">اللمسة (العائلة)</h4>
+                  <input 
+                    type="color"
+                    value={globalAppearance?.customAccentColor || '#00b4d8'}
+                    onChange={(e) => updateAccentColor(e.target.value, true)}
+                    className="w-full h-12 rounded-xl bg-white/10 border border-white/20 cursor-pointer"
+                  />
+                  <button 
+                    onClick={() => updateAccentColor('', true)}
+                    className="text-[9px] font-black text-brand-accent hover:underline w-full text-center"
+                  >
+                    إعادة ضبط اللون
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* Individual Theme Settings - For Everyone */}
+        <section className="bg-brand-card p-6 rounded-[2.5rem] border border-white/20 space-y-6 shadow-xl opacity-90">
            <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-brand-primary/10 rounded-2xl flex items-center justify-center text-brand-primary">
                  <Wand2 size={20} />
@@ -5856,6 +5960,14 @@ const MotivationPage = ({ profile }: { profile: UserProfile }) => {
 
 export default function App() {
   const { user, profile, loading } = useAuth();
+  const [globalAppearance, setGlobalAppearance] = useState<any>(null);
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'config', 'appearance'), (snap) => {
+      if (snap.exists()) setGlobalAppearance(snap.data());
+    }, (err) => handleFirestoreError(err, OperationType.GET, 'config/appearance'));
+    return () => unsub();
+  }, []);
 
   useEffect(() => {
     if ('serviceWorker' in navigator) {
@@ -5868,18 +5980,17 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (profile?.theme) {
-      document.body.className = `theme-${profile.theme} rtl`;
-    } else {
-      document.body.className = `theme-summer rtl`;
-    }
+    const theme = profile?.theme || globalAppearance?.theme || 'summer';
+    const bgColor = profile?.customBgColor || globalAppearance?.customBgColor || '';
     
-    if (profile?.customBgColor) {
-      document.body.style.backgroundColor = profile.customBgColor;
+    document.body.className = `theme-${theme} rtl`;
+    
+    if (bgColor) {
+      document.body.style.backgroundColor = bgColor;
     } else {
       document.body.style.backgroundColor = '';
     }
-  }, [profile?.theme, profile?.customBgColor]);
+  }, [profile?.theme, profile?.customBgColor, globalAppearance]);
 
   if (loading) return (
     <div className="h-screen bg-brand-bg flex items-center justify-center p-8">
@@ -5896,13 +6007,15 @@ export default function App() {
 
   if (!user || !profile) return <Landing />;
 
+  const currentAccentColor = profile.customAccentColor || globalAppearance?.customAccentColor || undefined;
+
   return (
     <Router>
       <div 
         className={cn("min-h-screen flex flex-col md:flex-row-reverse rtl transition-colors duration-500")} 
         style={{ 
-          backgroundColor: profile.customBgColor || undefined,
-          '--bg': profile.customBgColor || undefined
+          backgroundColor: profile.customBgColor || globalAppearance?.customBgColor || undefined,
+          '--bg': profile.customBgColor || globalAppearance?.customBgColor || undefined
         } as React.CSSProperties} 
         dir="rtl"
       >
@@ -5910,10 +6023,10 @@ export default function App() {
         <main 
           className="flex-1 overflow-x-hidden md:max-w-4xl md:mx-auto shadow-2xl border-x border-white/20 transition-colors duration-500 bg-brand-bg"
           style={{ 
-            backgroundColor: profile.customBgColor || undefined,
-            '--bg': profile.customBgColor || undefined,
-            '--brand-primary': profile.customAccentColor || undefined,
-            '--brand-accent': profile.customAccentColor || undefined
+            backgroundColor: profile.customBgColor || globalAppearance?.customBgColor || undefined,
+            '--bg': profile.customBgColor || globalAppearance?.customBgColor || undefined,
+            '--brand-primary': currentAccentColor,
+            '--brand-accent': currentAccentColor
           } as React.CSSProperties}
         >
           <Routes>
