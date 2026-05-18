@@ -4681,6 +4681,29 @@ const SilenceMomentsPage = ({ profile }: { profile: UserProfile }) => {
     }
   };
 
+  const exportAsImage = async (sessionId: string) => {
+    const element = document.getElementById(`moment-card-${sessionId}`);
+    if (!element) return;
+    
+    try {
+      const dataUrl = await toPng(element, {
+        cacheBust: true,
+        backgroundColor: '#f8fafc',
+        style: {
+          borderRadius: '2.5rem',
+          transform: 'scale(1)',
+        }
+      });
+      
+      const link = document.createElement('a');
+      link.download = `silence-moment-${sessionId}.png`;
+      link.href = dataUrl;
+      link.click();
+    } catch (err) {
+      console.error('Failed to export image', err);
+    }
+  };
+
   return (
       <div className="min-h-screen bg-brand-bg pb-24">
         <Header title="لحظات هدوء وسكينة" profile={profile} />
@@ -4714,26 +4737,65 @@ const SilenceMomentsPage = ({ profile }: { profile: UserProfile }) => {
                 {sessions.map(s => (
                   <motion.div 
                     key={s.id}
+                    id={`moment-card-${s.id}`}
                     initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
-                    className="bg-brand-card p-5 rounded-[2rem] border border-brand-primary/5 shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow"
+                    className="bg-brand-card p-6 rounded-[2.5rem] border border-brand-primary/5 shadow-sm relative overflow-hidden group hover:shadow-md transition-all duration-300"
                   >
-                    <div className="absolute top-0 right-0 p-2 opacity-[0.03] group-hover:opacity-10 transition-opacity">
-                      <Wind size={40} />
-                    </div>
-                    <div className="flex justify-between items-start mb-2">
-                      <span className="text-[10px] font-black text-brand-primary bg-brand-primary/10 px-3 py-1 rounded-full">
-                        {s.userName}
-                      </span>
-                      <span className="text-[8px] text-brand-text/40 font-bold">
-                         {s.createdAt?.toDate ? s.createdAt.toDate().toLocaleDateString('ar-SA') : 'الآن'}
-                      </span>
-                    </div>
-                    <p className="text-sm font-black text-brand-text leading-relaxed">
-                      "{s.phrase}"
-                    </p>
-                    <div className="mt-2 text-[8px] text-brand-text/30 text-left w-full font-bold">
-                      بواسطة: {s.recorderName}
+                    {/* Artistic Background Elements */}
+                    <div className="absolute top-0 right-0 -mr-8 -mt-8 w-32 h-32 bg-teal-400/5 rounded-full blur-3xl group-hover:bg-teal-400/10 transition-colors" />
+                    <div className="absolute bottom-0 left-0 -ml-8 -mb-8 w-32 h-32 bg-emerald-400/5 rounded-full blur-3xl group-hover:bg-emerald-400/10 transition-colors" />
+                    
+                    <div className="relative z-10">
+                      <div className="flex justify-between items-start mb-4">
+                        <div className="flex items-center gap-2">
+                           <div className="w-10 h-10 bg-gradient-to-br from-teal-400 to-emerald-500 rounded-full flex items-center justify-center text-white shadow-md">
+                              <Wind size={20} />
+                           </div>
+                           <div>
+                             <span className="text-xs font-black text-brand-primary block">
+                                {s.userName}
+                             </span>
+                             <span className="text-[9px] text-brand-text/30 font-bold uppercase tracking-widest">
+                                لحظة سكينة
+                             </span>
+                           </div>
+                        </div>
+                        <div className="flex flex-col items-end gap-2">
+                          <span className="text-[10px] text-brand-text/40 font-bold">
+                             {s.createdAt?.toDate ? s.createdAt.toDate().toLocaleDateString('ar-SA') : 'الآن'}
+                          </span>
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              exportAsImage(s.id);
+                            }}
+                            className="bg-brand-primary/5 hover:bg-brand-primary/10 p-2 rounded-full text-brand-primary transition-colors flex items-center gap-1.5"
+                            title="تصدير كصورة"
+                          >
+                            <ImageIcon size={14} />
+                            <span className="text-[10px] font-black">حفظ</span>
+                          </button>
+                        </div>
+                      </div>
+                      
+                      <div className="py-4 text-center">
+                        <p className="text-lg font-black text-brand-text leading-relaxed tracking-tight italic opacity-90">
+                          "{s.phrase}"
+                        </p>
+                      </div>
+
+                      <div className="mt-4 pt-4 border-t border-brand-primary/5 flex justify-between items-center">
+                        <div className="flex items-center gap-1.5">
+                           <Sparkles size={12} className="text-amber-400" />
+                           <span className="text-[10px] text-brand-text/30 font-bold">
+                            سجل السكينة العائلية
+                           </span>
+                        </div>
+                        <div className="text-[10px] text-brand-text/30 font-bold">
+                          بواسطة: {s.recorderName}
+                        </div>
+                      </div>
                     </div>
                   </motion.div>
                 ))}
