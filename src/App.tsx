@@ -45,6 +45,7 @@ import {
   RotateCcw,
   Sparkles,
   Share2,
+  Send,
   Download,
   Trash2,
   Coffee,
@@ -2134,6 +2135,13 @@ const FlashInstantQuest = ({ profile, isParent, family }: { profile: UserProfile
           setActiveChallenge(null);
           return;
         }
+
+        // Only show if I am the target child OR I am a parent
+        if (!isParent && data.targetId && data.targetId !== profile.uid) {
+          setActiveChallenge(null);
+          return;
+        }
+
         const now = Date.now();
         const expiresAt = data.expiresAt?.toMillis();
         if (expiresAt > now) {
@@ -2147,7 +2155,7 @@ const FlashInstantQuest = ({ profile, isParent, family }: { profile: UserProfile
       }
     });
     return () => unsub();
-  }, []);
+  }, [profile.uid, isParent]);
 
   useEffect(() => {
     let timer: any;
@@ -2159,7 +2167,7 @@ const FlashInstantQuest = ({ profile, isParent, family }: { profile: UserProfile
     return () => clearInterval(timer);
   }, [timeLeft, activeChallenge]);
 
-  const triggerChallenge = async () => {
+  const triggerChallenge = async (childId: string, childName: string) => {
     if (!isParent) return;
     const challenges = [
       { title: "بر الوالدين", msg: "أسرع! قبل انتهاء العداد.. اذهب وقبّل يد والديك وأخبرهما بسر تحبه فيهما!", reward: 10 },
@@ -2170,19 +2178,21 @@ const FlashInstantQuest = ({ profile, isParent, family }: { profile: UserProfile
     const c = challenges[Math.floor(Math.random() * challenges.length)];
     await setDoc(doc(db, 'config', 'flash_challenge'), {
       ...c,
+      targetId: childId,
+      targetName: childName,
       expiresAt: new Date(Date.now() + 60000),
       triggeredBy: profile.uid
     });
   };
 
-  const completeChallenge = async (childId: string, childName: string) => {
+  const completeChallenge = async () => {
     if (!activeChallenge || !isParent) return;
     setCompleting(true);
     try {
-      await updateDoc(doc(db, 'users', childId), {
+      await updateDoc(doc(db, 'users', activeChallenge.targetId), {
         tokensBalance: increment(activeChallenge.reward)
       });
-      alert(`يا بطل! حصل ${childName} على ${activeChallenge.reward} توكن! ⚡`);
+      alert(`يا بطل! حصل ${activeChallenge.targetName} على ${activeChallenge.reward} توكن! ⚡`);
       await setDoc(doc(db, 'config', 'flash_challenge'), {});
     } catch (err) {
       console.error(err);
@@ -2204,7 +2214,9 @@ const FlashInstantQuest = ({ profile, isParent, family }: { profile: UserProfile
         <div className="w-10 h-10 bg-brand-accent rounded-xl flex items-center justify-center text-white shadow-lg">
           <Zap size={20} className={activeChallenge ? "animate-pulse" : ""} />
         </div>
-        <h3 className="font-black text-brand-text">تحدي "فلاش" المفاجئ ⚡</h3>
+        <h3 className="font-black text-brand-text">
+          {activeChallenge ? `تحدي فلاش لـ ${activeChallenge.targetName} ⚡` : 'تحدي "فلاش" المفاجئ ⚡'}
+        </h3>
       </div>
       
       {activeChallenge ? (
@@ -2228,7 +2240,7 @@ const FlashInstantQuest = ({ profile, isParent, family }: { profile: UserProfile
                 {children.map(child => (
                   <button
                     key={child.uid}
-                    onClick={() => completeChallenge(child.uid, child.displayName)}
+                    onClick={() => completeChallenge()}
                     disabled={completing}
                     className="py-3 bg-emerald-500 text-white rounded-2xl text-[10px] font-black shadow-lg hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50"
                   >
@@ -2250,14 +2262,17 @@ const FlashInstantQuest = ({ profile, isParent, family }: { profile: UserProfile
           )}
         </div>
       ) : (
-        <div className="space-y-4">
-           <p className="text-xs font-bold text-brand-text opacity-60">لا يوجد تحدي نشط حالياً. اضغط الزر بالأسفل لإرسال تحدي مفاجئ لجميع أفراد العائلة!</p>
-           <button 
-             onClick={triggerChallenge}
-             className="w-full py-3 bg-brand-primary text-white rounded-2xl text-xs font-black shadow-lg hover:scale-[1.02] active:scale-95 transition-all"
-           >
-             تفعيل تحدي فلاش الآن! ⚡
-           </button>
+        <div className="grid grid-cols-1 gap-2">
+          {children.map(child => (
+            <button 
+              key={child.uid}
+              onClick={() => triggerChallenge(child.uid, child.displayName)}
+              className="w-full py-3 bg-brand-primary text-white rounded-2xl text-[10px] font-black shadow-lg hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2"
+            >
+              <Send size={14} />
+              أرسل تحدي فلاش لـ {child.displayName}
+            </button>
+          ))}
         </div>
       )}
     </section>
