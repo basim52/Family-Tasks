@@ -1140,15 +1140,24 @@ const LuckyWheel = ({ profile }: { profile: UserProfile }) => {
   const [rotation, setRotation] = useState(0);
   const [showResult, setShowResult] = useState<any>(null);
   const [hasSpunToday, setHasSpunToday] = useState(false);
+  const [spinHistory, setSpinHistory] = useState<any[]>([]);
 
   const segments = [
-    { label: "5 points", color: "#facc15", value: 5, type: "points" },
-    { label: "10 points", color: "#60a5fa", value: 10, type: "points" },
-    { label: "20 points", color: "#f87171", value: 20, type: "points" },
-    { label: "50 points", color: "#a78bfa", value: 50, type: "points" },
-    { label: "1 Token", color: "#fb923c", value: 1, type: "tokens" },
-    { label: "15 points", color: "#4ade80", value: 15, type: "points" },
+    { label: "5 نقاط 🪙", color: "#facc15", value: 5, type: "points" },
+    { label: "10 نقاط 🪙", color: "#60a5fa", value: 10, type: "points" },
+    { label: "20 نقطة 🪙", color: "#f87171", value: 20, type: "points" },
+    { label: "50 نقطة 🪙", color: "#a78bfa", value: 50, type: "points" },
+    { label: "1 توكن 💎", color: "#fb923c", value: 1, type: "tokens" },
+    { label: "15 نقطة 🪙", color: "#4ade80", value: 15, type: "points" },
   ];
+
+  useEffect(() => {
+    const q = query(collection(db, 'spinLogs'), orderBy('timestamp', 'desc'), limit(5));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setSpinHistory(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     if (profile.lastLuckySpinAt) {
@@ -1206,6 +1215,14 @@ const LuckyWheel = ({ profile }: { profile: UserProfile }) => {
         }
 
         await updateDoc(doc(db, 'users', profile.uid), updateData);
+        
+        // Log the win
+        await addDoc(collection(db, 'spinLogs'), {
+          userName: profile.displayName || "مستخدم",
+          userId: profile.uid,
+          resultLabel: result.label,
+          timestamp: serverTimestamp()
+        });
       } catch (err) {
         console.error("Spin save error:", err);
       }
@@ -1298,6 +1315,39 @@ const LuckyWheel = ({ profile }: { profile: UserProfile }) => {
           </button>
         </motion.div>
       )}
+
+      {/* Winners Log */}
+      <div className="mt-8 w-full border-t border-brand-primary/10 pt-6">
+        <div className="flex items-center gap-2 mb-4">
+          <History size={14} className="text-brand-text/40" />
+          <h4 className="text-[10px] font-black text-brand-text/60 uppercase tracking-widest">سجل الفائزين</h4>
+        </div>
+        
+        <div className="space-y-3">
+          {spinHistory.length === 0 ? (
+            <p className="text-[9px] text-brand-text/30 italic text-center py-2">لا يوجد سجل حالياً</p>
+          ) : (
+            spinHistory.map((log) => (
+              <div key={log.id} className="flex items-center justify-between bg-white/40 p-3 rounded-2xl border border-white/50 shadow-sm">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-full bg-summer-accent/10 flex items-center justify-center text-[10px] font-bold text-summer-accent uppercase">
+                    {log.userName?.[0]}
+                  </div>
+                  <span className="text-[10px] font-bold text-brand-text">{log.userName}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-black text-amber-600 bg-amber-50 px-2 py-1 rounded-lg border border-amber-100">
+                    {log.resultLabel}
+                  </span>
+                  <span className="text-[8px] text-brand-text/30">
+                    {log.timestamp?.toDate ? log.timestamp.toDate().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }) : 'الآن'}
+                  </span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
     </section>
   );
 };
