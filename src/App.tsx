@@ -1186,46 +1186,52 @@ const LuckyWheel = ({ profile }: { profile: UserProfile }) => {
        }
     }
 
-    setHasSpunToday(true); // Set immediately to prevent double clicks during delay
+    setHasSpunToday(true); 
     setSpinning(true);
-    const spinCount = 5 + Math.floor(Math.random() * 5); // 5 to 10 full rotations
+
+    const spinCount = 5 + Math.floor(Math.random() * 5);
     const randomSegment = Math.floor(Math.random() * segments.length);
     const segmentAngle = 360 / segments.length;
     const targetRotation = rotation + (spinCount * 360) + (randomSegment * segmentAngle);
     
     setRotation(targetRotation);
 
-    setTimeout(async () => {
-      const actualSegment = (segments.length - (Math.floor(targetRotation / segmentAngle) % segments.length)) % segments.length;
-      const result = segments[actualSegment];
+    // Calculate result immediately
+    const actualSegment = (segments.length - (Math.floor(targetRotation / segmentAngle) % segments.length)) % segments.length;
+    const result = segments[actualSegment];
+
+    // Save to Firebase IMMEDIATELY to prevent refresh exploit
+    try {
+      const updateData: any = {
+        lastLuckySpinAt: serverTimestamp(),
+      };
+
+      if (result.type === "points") {
+        updateData.points = increment(result.value);
+        if (profile.totalPointsEarned !== undefined) {
+           updateData.totalPointsEarned = increment(result.value);
+        }
+      } else {
+        updateData.tokensBalance = increment(result.value);
+      }
+
+      await updateDoc(doc(db, 'users', profile.uid), updateData);
+      
+      // Log the win
+      await addDoc(collection(db, 'spinLogs'), {
+        userName: profile.displayName || "مستخدم",
+        userId: profile.uid,
+        resultLabel: result.label,
+        timestamp: serverTimestamp()
+      });
+    } catch (err) {
+      console.error("Spin save error:", err);
+    }
+
+    // Show result after animation
+    setTimeout(() => {
       setShowResult(result);
       setSpinning(false);
-      setHasSpunToday(true);
-
-      // Save to Firebase
-      try {
-        const updateData: any = {
-          lastLuckySpinAt: serverTimestamp(),
-        };
-
-        if (result.type === "points") {
-          updateData.points = increment(result.value);
-        } else {
-          updateData.tokensBalance = increment(result.value);
-        }
-
-        await updateDoc(doc(db, 'users', profile.uid), updateData);
-        
-        // Log the win
-        await addDoc(collection(db, 'spinLogs'), {
-          userName: profile.displayName || "مستخدم",
-          userId: profile.uid,
-          resultLabel: result.label,
-          timestamp: serverTimestamp()
-        });
-      } catch (err) {
-        console.error("Spin save error:", err);
-      }
     }, 4000);
   };
 
@@ -1909,7 +1915,7 @@ const FamilyInnovationCenter = ({ profile, family, tasks }: { profile: UserProfi
         <FamilyStoryWeaver profile={profile} tasks={tasks} />
 
         {/* 2. Flash Instant Quest (تحدي "فلاش" المفاجئ) */}
-        <FlashInstantQuest profile={profile} isParent={isParent} />
+        <FlashInstantQuest profile={profile} isParent={isParent} family={family} />
       </div>
 
       {/* 3. Interactive Treasure Map (خريطة الكنز التفاعلية) */}
@@ -2115,7 +2121,7 @@ const FamilyStoryWeaver = ({ profile, tasks }: { profile: UserProfile, tasks: Ta
 };
 
 
-const FlashInstantQuest = ({ profile, isParent }: { profile: UserProfile, isParent: boolean }) => {
+const FlashInstantQuest = ({ profile, isParent, family }: { profile: UserProfile, isParent: boolean, family: UserProfile[] }) => {
   const [activeChallenge, setActiveChallenge] = useState<any>(null);
   const [timeLeft, setTimeLeft] = useState(0);
   const [completing, setCompleting] = useState(false);
@@ -2124,6 +2130,10 @@ const FlashInstantQuest = ({ profile, isParent }: { profile: UserProfile, isPare
     const unsub = onSnapshot(doc(db, 'config', 'flash_challenge'), (snap) => {
       if (snap.exists()) {
         const data = snap.data();
+        if (Object.keys(data).length <= 1 && !data.title) {
+          setActiveChallenge(null);
+          return;
+        }
         const now = Date.now();
         const expiresAt = data.expiresAt?.toMillis();
         if (expiresAt > now) {
@@ -2132,6 +2142,8 @@ const FlashInstantQuest = ({ profile, isParent }: { profile: UserProfile, isPare
         } else {
           setActiveChallenge(null);
         }
+      } else {
+        setActiveChallenge(null);
       }
     });
     return () => unsub();
@@ -2141,13 +2153,14 @@ const FlashInstantQuest = ({ profile, isParent }: { profile: UserProfile, isPare
     let timer: any;
     if (timeLeft > 0 && activeChallenge) {
       timer = setInterval(() => setTimeLeft(prev => prev - 1), 1000);
-    } else if (timeLeft <= 0) {
+    } else if (timeLeft <= 0 && activeChallenge) {
       setActiveChallenge(null);
     }
     return () => clearInterval(timer);
   }, [timeLeft, activeChallenge]);
 
   const triggerChallenge = async () => {
+    if (!isParent) return;
     const challenges = [
       { title: "بر الوالدين", msg: "أسرع! قبل انتهاء العداد.. اذهب وقبّل يد والديك وأخبرهما بسر تحبه فيهما!", reward: 10 },
       { title: "التعاون العائلي", msg: "أحضر كوب ماء بارد لأخيك أو أختك وابتسم في وجههما!", reward: 10 },
@@ -2162,21 +2175,23 @@ const FlashInstantQuest = ({ profile, isParent }: { profile: UserProfile, isPare
     });
   };
 
-  const completeChallenge = async () => {
-    if (!activeChallenge) return;
+  const completeChallenge = async (childId: string, childName: string) => {
+    if (!activeChallenge || !isParent) return;
     setCompleting(true);
     try {
-      await updateDoc(doc(db, 'users', profile.uid), {
-        tokensBalance: (profile.tokensBalance || 0) + activeChallenge.reward
+      await updateDoc(doc(db, 'users', childId), {
+        tokensBalance: increment(activeChallenge.reward)
       });
-      alert(`يا بطل! حصلت على ${activeChallenge.reward} توكن! ⚡`);
-      setActiveChallenge(null);
+      alert(`يا بطل! حصل ${childName} على ${activeChallenge.reward} توكن! ⚡`);
+      await setDoc(doc(db, 'config', 'flash_challenge'), {});
     } catch (err) {
       console.error(err);
     } finally {
       setCompleting(false);
     }
   };
+
+  const children = family.filter(f => f.role === 'child');
 
   if (!activeChallenge && !isParent) return null;
 
@@ -2206,13 +2221,33 @@ const FlashInstantQuest = ({ profile, isParent }: { profile: UserProfile, isPare
             </p>
           </div>
 
-          <button 
-            onClick={completeChallenge}
-            disabled={completing}
-            className="w-full py-3 bg-brand-accent text-white rounded-2xl text-xs font-black shadow-lg hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50"
-          >
-            {completing ? 'جاري الحفظ...' : `تم الإنجاز! (كسب ${activeChallenge.reward} توكن)`}
-          </button>
+          {isParent ? (
+            <div className="space-y-3">
+              <p className="text-[10px] font-black text-brand-text/60">من أنجز التحدي؟</p>
+              <div className="grid grid-cols-2 gap-2">
+                {children.map(child => (
+                  <button
+                    key={child.uid}
+                    onClick={() => completeChallenge(child.uid, child.displayName)}
+                    disabled={completing}
+                    className="py-3 bg-emerald-500 text-white rounded-2xl text-[10px] font-black shadow-lg hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50"
+                  >
+                    {child.displayName} ✅
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => setDoc(doc(db, 'config', 'flash_challenge'), {})}
+                className="w-full py-2 bg-red-500/10 text-red-500 rounded-xl text-[10px] font-black hover:bg-red-500 hover:text-white transition-all mt-2"
+              >
+                إلغاء التحدي ✖️
+              </button>
+            </div>
+          ) : (
+            <div className="py-3 bg-white/40 rounded-2xl text-center border border-white/60">
+               <p className="text-[10px] font-black text-brand-accent animate-pulse">بانتظار تصديق الوالدين... ⌛</p>
+            </div>
+          )}
         </div>
       ) : (
         <div className="space-y-4">
@@ -2249,8 +2284,26 @@ const TreasureMapPreview = ({ profile, tasks }: { profile: UserProfile, tasks: T
 
   // Show user's task progress
   const userTasks = profile.role === 'child' ? tasks.filter(t => t.assignedTo === profile.uid) : tasks;
-  const completedCount = userTasks.filter(t => t.status === 'approved' || t.status === 'completed').length;
-  const targetCount = 10; // A major treasure for every 10 tasks
+  const approvedTasks = userTasks.filter(t => t.status === 'approved' || t.status === 'completed');
+  const completedCount = approvedTasks.length;
+  const lastClaimed = profile.lastTreasureClaimedCount || 0;
+  const currentProgress = completedCount - lastClaimed;
+  const targetCount = 10; 
+
+  const claimTreasure = async () => {
+    if (currentProgress < targetCount) return;
+    
+    try {
+      await updateDoc(doc(db, 'users', profile.uid), {
+        points: increment(100),
+        tokensBalance: increment(1),
+        lastTreasureClaimedCount: lastClaimed + targetCount
+      });
+      alert('🎉 مبروك! لقد فتحت الكنز وحصلت على 100 نقطة و 1 توكن! ✨');
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   if (!isActivated && !isParent) return (
     <section className="bg-brand-card p-8 rounded-[2.5rem] border border-white/20 shadow-xl opacity-60 text-center">
@@ -2292,37 +2345,41 @@ const TreasureMapPreview = ({ profile, tasks }: { profile: UserProfile, tasks: T
         <div className="flex items-center gap-4 min-w-max pb-2">
            <div className={cn(
              "w-16 h-16 rounded-3xl border-2 flex items-center justify-center relative shrink-0 transition-all",
-             completedCount >= 1 ? "bg-emerald-100 border-emerald-500 text-emerald-600" : "bg-white/10 border-dashed border-emerald-500/30 text-emerald-500/40"
+             currentProgress >= 1 ? "bg-emerald-100 border-emerald-500 text-emerald-600" : "bg-white/10 border-dashed border-emerald-500/30 text-emerald-500/40"
            )}>
              <Target size={24} />
-             {completedCount >= 1 && <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-emerald-500 rounded-full border-2 border-white flex items-center justify-center text-[10px] text-white font-black">✓</div>}
+             {currentProgress >= 1 && <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-emerald-500 rounded-full border-2 border-white flex items-center justify-center text-[10px] text-white font-black">✓</div>}
            </div>
            
-           <div className={cn("w-12 h-1 rounded-full shrink-0", completedCount >= 1 ? "bg-emerald-200" : "bg-white/10")} />
+           <div className={cn("w-12 h-1 rounded-full shrink-0", currentProgress >= 1 ? "bg-emerald-200" : "bg-white/10")} />
 
            {[2, 4, 6, 8].map((step) => (
              <React.Fragment key={step}>
                 <div className={cn(
                   "w-16 h-16 rounded-3xl border-2 flex items-center justify-center relative shrink-0 transition-all",
-                  completedCount >= step ? "bg-emerald-100 border-emerald-500 text-emerald-600" : "bg-white/10 border-dashed border-emerald-500/30 text-emerald-500/40"
+                  currentProgress >= step ? "bg-emerald-100 border-emerald-500 text-emerald-600" : "bg-white/10 border-dashed border-emerald-500/30 text-emerald-500/40"
                 )}>
                   <span className="text-[10px] font-black">المهمة {step}</span>
-                  {completedCount >= step && <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-emerald-500 rounded-full border-2 border-white flex items-center justify-center text-[10px] text-white font-black">✓</div>}
+                  {currentProgress >= step && <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-emerald-500 rounded-full border-2 border-white flex items-center justify-center text-[10px] text-white font-black">✓</div>}
                 </div>
-                <div className={cn("w-12 h-1 rounded-full shrink-0", completedCount >= step ? "bg-emerald-200" : "bg-white/10")} />
+                <div className={cn("w-12 h-1 rounded-full shrink-0", currentProgress >= step ? "bg-emerald-200" : "bg-white/10")} />
              </React.Fragment>
            ))}
 
-           <div className={cn(
-             "w-20 h-20 rounded-[2rem] flex items-center justify-center text-white shadow-xl relative shrink-0 transition-all",
-             completedCount >= targetCount ? "brand-gradient animate-bounce" : "bg-white/10 border-2 border-dashed border-brand-primary/20"
-           )}>
-             <Flag size={32} className={completedCount >= targetCount ? "opacity-100" : "opacity-20"} />
-             <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-amber-400 px-3 py-1 rounded-full text-[9px] font-black shadow-lg">الكنز الكبير</div>
-           </div>
+           <button 
+             onClick={claimTreasure}
+             disabled={currentProgress < targetCount}
+             className={cn(
+               "w-20 h-20 rounded-[2rem] flex flex-col items-center justify-center text-white shadow-xl relative shrink-0 transition-all active:scale-95",
+               currentProgress >= targetCount ? "brand-gradient animate-pulse cursor-pointer" : "bg-white/10 border-2 border-dashed border-brand-primary/20 grayscale cursor-not-allowed"
+             )}
+           >
+             <Gift size={32} className={currentProgress >= targetCount ? "opacity-100" : "opacity-20"} />
+             <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-amber-400 px-3 py-1 rounded-full text-[7px] font-black shadow-lg text-amber-950">افتح الكنز</div>
+           </button>
         </div>
         <p className="mt-4 text-[10px] text-brand-text/40 font-bold text-center">
-          {!isActivated ? "الخريطة مغلقة حالياً" : completedCount >= targetCount ? "مبروك! لقد وصلت للكنز! 🎉" : `أكمل ${targetCount - (completedCount % targetCount)} مهام إضافية لفتح صندوق الكنز الرقمي!`}
+          {!isActivated ? "الخريطة مغلقة حالياً" : currentProgress >= targetCount ? "مبروك! الكنز بانتظارك! اضغط لفتحه 🎉" : `أكمل ${targetCount - currentProgress} مهام إضافية لفتح الكنز الرقمي!`}
         </p>
       </div>
     </section>

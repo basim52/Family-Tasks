@@ -12,10 +12,11 @@ export interface UserProfile {
   totalPointsEarned?: number;
   currencyBalance: number;
   tokensBalance: number; // New specialized currency
+  lastLuckySpinAt?: any;
+  lastTreasureClaimedCount?: number;
   theme?: ThemeType;
   customBgColor?: string;
   customAccentColor?: string;
-  lastLuckySpinAt?: any;
   createdAt: any;
 }
 
