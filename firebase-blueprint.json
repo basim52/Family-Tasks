@@ -196,6 +196,34 @@
         "serialNumber": { "type": "string" }
       },
       "required": ["transactionId", "userId", "amount", "issuedAt", "serialNumber"]
+    },
+    "Badge": {
+      "title": "Badge",
+      "description": "Achievement badge awarded to a child",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "childId": { "type": "string" },
+        "childName": { "type": "string" },
+        "icon": { "type": "string" },
+        "color": { "type": "string" },
+        "awardedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "childId", "childName", "icon", "color", "awardedAt"]
+    },
+    "SilenceSession": {
+      "title": "Silence Session",
+      "description": "A recorded moment of family silence/calm",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "phrase": { "type": "string" },
+        "recorderId": { "type": "string" },
+        "recorderName": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "userName", "phrase", "recorderId", "recorderName", "createdAt"]
     }
   },
   "firestore": {
@@ -254,6 +282,14 @@
     "cheques": {
       "schema": "Cheque",
       "description": "Financial cheques for points redemption"
+    },
+    "badges": {
+      "schema": "Badge",
+      "description": "Achievement badges awarded to children"
+    },
+    "silenceSessions": {
+      "schema": "SilenceSession",
+      "description": "Recording of family calm moments"
     }
   }
 }

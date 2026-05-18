@@ -34,6 +34,7 @@ import {
   Heart,
   MessageSquare,
   Edit2,
+  Edit3,
   Camera,
   X,
   Smile,
@@ -41,12 +42,15 @@ import {
   Meh,
   Plus,
   Zap,
+  RotateCcw,
   Sparkles,
   Share2,
   Download,
   Trash2,
   Coffee,
   Lightbulb,
+  History,
+  Wind,
   BookOpen,
   Clock,
   Map,
@@ -83,12 +87,13 @@ import {
   deleteDoc,
   arrayUnion,
   limit,
+  increment,
   getDoc,
   getDocs,
   setDoc
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { Task, Message, UserProfile, Prize, StoreProduct, TaskComment, BigGoal, MonthlyReward, Call, BehaviorRating, Motivation, MotivationTemplate, Cheque, Badge } from './types';
+import { Task, Message, UserProfile, Prize, StoreProduct, TaskComment, BigGoal, MonthlyReward, Call, BehaviorRating, Motivation, MotivationTemplate, Cheque, Badge, ThemeType, SilenceSession } from './types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -133,6 +138,69 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   return errInfo;
 }
 
+async function safeFetch(url: string, options: RequestInit) {
+  const resp = await fetch(url, options);
+  const contentType = resp.headers.get('content-type');
+  
+  if (contentType && contentType.includes('application/json')) {
+    const data = await resp.json();
+    if (!resp.ok) {
+      throw new Error(data.error || `HTTP error! status: ${resp.status}`);
+    }
+    return data;
+  } else {
+    // Non-JSON response (likely HTML from proxy or server error)
+    const text = await resp.text();
+    if (!resp.ok) {
+      // If it looks like HTML, give a generic error message
+      if (text.trim().startsWith('<!')) {
+        throw new Error(`تعذر الاتصال بالخادم بشكل صحيح (خطأ ${resp.status}). يرجى المحاولة مرة أخرى.`);
+      }
+      throw new Error(text || `HTTP error! status: ${resp.status}`);
+    }
+    return text;
+  }
+}
+
+const ThemeSelector = ({ currentTheme, onSelect }: { currentTheme: string, onSelect: (theme: ThemeType) => void }) => {
+  const themes: { id: ThemeType, name: string, colors: string[] }[] = [
+    { id: 'summer', name: 'الصيف المرح', colors: ['#00b4d8', '#ffb703', '#fb8500'] },
+    { id: 'galaxy', name: 'فضاء النجوم', colors: ['#7209b7', '#4361ee', '#f72585'] },
+    { id: 'forest', name: 'غابة الأسرار', colors: ['#2d6a4f', '#74c69d', '#081c15'] },
+    { id: 'candy', name: 'عالم الحلوى', colors: ['#ff006e', '#8338ec', '#ffbe0b'] },
+    { id: 'minimal', name: 'بساطة عصرية', colors: ['#18181b', '#71717a', '#27272a'] },
+  ];
+
+  return (
+    <div className="grid grid-cols-1 gap-3">
+      {themes.map(t => (
+        <button
+          key={t.id}
+          onClick={() => onSelect(t.id)}
+          className={cn(
+            "p-4 rounded-[2.5rem] border transition-all flex items-center justify-between group overflow-hidden relative",
+            currentTheme === t.id ? "border-brand-primary bg-brand-primary/10 shadow-lg" : "border-white/10 bg-white/5 hover:bg-white/10"
+          )}
+        >
+          <div className="flex items-center gap-3">
+             <div className="flex -space-x-2">
+                {t.colors.map((c, i) => (
+                  <div key={i} className="w-6 h-6 rounded-full border-2 border-brand-bg shadow-sm" style={{ backgroundColor: c }} />
+                ))}
+             </div>
+             <span className="text-xs font-black text-brand-text">{t.name}</span>
+          </div>
+          {currentTheme === t.id && (
+            <div className="w-6 h-6 bg-brand-primary rounded-full flex items-center justify-center text-white scale-110 shadow-lg">
+              <CheckCircle2 size={14} />
+            </div>
+          )}
+        </button>
+      ))}
+    </div>
+  );
+};
+
 // --- Components ---
 
 const Navbar = ({ profile }: { profile: UserProfile | null }) => {
@@ -146,7 +214,7 @@ const Navbar = ({ profile }: { profile: UserProfile | null }) => {
   const isParent = profile?.role === 'parent';
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-summer-card border-t border-white/20 z-50 rounded-t-3xl shadow-[0_-4px_20px_rgba(0,0,0,0.2)] md:static md:border-t-0 md:rounded-none md:shadow-none md:w-20 md:min-h-screen md:text-white">
+    <nav className="fixed bottom-0 left-0 right-0 bg-brand-card border-t border-white/20 z-50 rounded-t-3xl shadow-[0_-4px_20px_rgba(0,0,0,0.2)] md:static md:border-t-0 md:rounded-none md:shadow-none md:w-20 md:min-h-screen md:text-white">
       <div className="flex md:flex-col justify-around md:justify-center items-center h-20 md:h-full md:gap-8">
         {navItems.map((item) => {
           const isActive = location.pathname === item.path;
@@ -156,7 +224,7 @@ const Navbar = ({ profile }: { profile: UserProfile | null }) => {
               to={item.path}
               className={cn(
                 "flex flex-col items-center gap-1 transition-all group p-2",
-                isActive ? "text-summer-accent" : "text-summer-text/50 hover:text-summer-accent"
+                isActive ? "text-brand-accent" : "text-brand-text/50 hover:text-brand-accent"
               )}
             >
               <div className={cn(
@@ -173,7 +241,7 @@ const Navbar = ({ profile }: { profile: UserProfile | null }) => {
           to="/shop"
           className={cn(
             "flex flex-col items-center gap-1 transition-all group p-2",
-            location.pathname === '/shop' ? "text-summer-accent" : "text-summer-text/50 hover:text-summer-accent"
+            location.pathname === '/shop' ? "text-brand-accent" : "text-brand-text/50 hover:text-brand-accent"
           )}
         >
           <div className={cn(
@@ -184,23 +252,21 @@ const Navbar = ({ profile }: { profile: UserProfile | null }) => {
           </div>
           <span className="text-[10px] font-bold md:hidden">المتجر</span>
         </Link>
-        {isParent && (
-          <Link 
-            to="/settings"
-            className={cn(
-              "flex flex-col items-center gap-1 transition-all group p-2",
-              location.pathname === '/settings' ? "text-summer-accent" : "text-summer-text/50 hover:text-summer-accent"
-            )}
-          >
-            <div className={cn(
-              "p-2 rounded-xl transition-all",
-              location.pathname === '/settings' ? "bg-white/30" : "group-hover:bg-white/20"
-            )}>
-              <Settings size={22} />
-            </div>
-            <span className="text-[10px] font-bold md:hidden">الإعدادات</span>
-          </Link>
-        )}
+        <Link 
+          to="/settings"
+          className={cn(
+            "flex flex-col items-center gap-1 transition-all group p-2",
+            location.pathname === '/settings' ? "text-brand-accent" : "text-brand-text/50 hover:text-brand-accent"
+          )}
+        >
+          <div className={cn(
+            "p-2 rounded-xl transition-all",
+            location.pathname === '/settings' ? "bg-white/30" : "group-hover:bg-white/20"
+          )}>
+            <Settings size={22} />
+          </div>
+          <span className="text-[10px] font-bold md:hidden">الإعدادات</span>
+        </Link>
         <button 
           onClick={() => auth.signOut()}
           className="p-2 text-red-400 hover:bg-white/5 rounded-xl transition-all md:mt-auto md:mb-8"
@@ -225,8 +291,8 @@ const sendNotification = async (userId: string, title: string, body: string, typ
 };
 
 const getLevel = (totalPoints: number = 0) => {
-  if (totalPoints >= 1000) return { name: 'المستوى الذهبي', color: 'text-summer-accent', icon: Star };
-  if (totalPoints >= 500) return { name: 'المستوى الفضي', color: 'text-summer-primary', icon: Star };
+  if (totalPoints >= 1000) return { name: 'المستوى الذهبي', color: 'text-brand-accent', icon: Star };
+  if (totalPoints >= 500) return { name: 'المستوى الفضي', color: 'text-brand-primary', icon: Star };
   if (totalPoints >= 200) return { name: 'المستوى البرونزي', color: 'text-amber-700', icon: Star };
   return { name: 'مبتدئ', color: 'text-slate-500', icon: Star };
 };
@@ -425,23 +491,23 @@ const NotificationCentre = ({ profile }: { profile: UserProfile }) => {
 };
 
 const Header = ({ title, profile, actions }: { title: string, profile: UserProfile, actions?: React.ReactNode }) => (
-  <header className="px-6 py-6 flex justify-between items-center bg-summer-card border-b border-white/20 sticky top-0 z-40">
+  <header className="px-6 py-6 flex justify-between items-center bg-brand-card border-b border-white/20 sticky top-0 z-40">
     <div className="flex items-center gap-4">
       <NotificationCentre profile={profile} />
       <div className="flex items-center gap-4">
         <div>
-          <h1 className="text-lg md:text-2xl font-bold tracking-tight text-summer-text whitespace-nowrap">{title}</h1>
-          <p className="text-[10px] text-summer-text/60 uppercase tracking-widest font-medium">نظام العائلة الذكي</p>
+          <h1 className="text-lg md:text-2xl font-bold tracking-tight text-brand-text whitespace-nowrap">{title}</h1>
+          <p className="text-[10px] text-brand-text/60 uppercase tracking-widest font-medium">نظام العائلة الذكي</p>
         </div>
         {actions && <div className="flex gap-2 mr-2 md:mr-4 border-r border-white/20 pr-2 md:pr-4">{actions}</div>}
       </div>
     </div>
     <div className="flex gap-4 items-center">
       <div className="hidden md:block text-left text-xs">
-        <p className="font-semibold text-summer-text">{profile.displayName}</p>
-        <p className="text-summer-accent opacity-70">{profile.role === 'parent' ? 'مسؤول النظام' : 'عضو عائلي'}</p>
+        <p className="font-semibold text-brand-text">{profile.displayName}</p>
+        <p className="text-brand-accent opacity-70">{profile.role === 'parent' ? 'مسؤول النظام' : 'عضو عائلي'}</p>
       </div>
-      <button className="w-10 h-10 md:w-12 md:h-12 rounded-full border-2 border-summer-accent p-0.5 overflow-hidden shrink-0">
+      <button className="w-10 h-10 md:w-12 md:h-12 rounded-full border-2 border-brand-accent p-0.5 overflow-hidden shrink-0">
         <img src={profile.photoURL || ''} alt="User" className="w-full h-full rounded-full object-cover" />
       </button>
     </div>
@@ -485,7 +551,7 @@ const SuggestionsLibrary = ({ onSelectTask, onSelectGoal, onSelectMonthly }: {
   const generateWithAI = async () => {
     setAiLoading(true);
     try {
-      const resp = await fetch('/api/ai', {
+      const data = await safeFetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -493,7 +559,6 @@ const SuggestionsLibrary = ({ onSelectTask, onSelectGoal, onSelectMonthly }: {
           systemInstruction: "أنت خبير تربوي. اقترح مهام إبداعية غير تقليدية."
         })
       });
-      const data = await resp.json();
       const match = data.response.match(/\{[\s\S]*\}/);
       if (match && onSelectTask) {
         const parsed = JSON.parse(match[0]);
@@ -1070,6 +1135,158 @@ const MonthlyRewardsShop = ({ profile }: { profile: UserProfile }) => {
   );
 };
 
+const LuckyWheel = ({ profile }: { profile: UserProfile }) => {
+  const [spinning, setSpinning] = useState(false);
+  const [rotation, setRotation] = useState(0);
+  const [showResult, setShowResult] = useState<any>(null);
+  const [hasSpunToday, setHasSpunToday] = useState(false);
+
+  const segments = [
+    { label: "5 points", color: "#facc15", value: 5, type: "points" },
+    { label: "10 points", color: "#60a5fa", value: 10, type: "points" },
+    { label: "20 points", color: "#f87171", value: 20, type: "points" },
+    { label: "50 points", color: "#a78bfa", value: 50, type: "points" },
+    { label: "1 Token", color: "#fb923c", value: 1, type: "tokens" },
+    { label: "15 points", color: "#4ade80", value: 15, type: "points" },
+  ];
+
+  useEffect(() => {
+    if (profile.lastLuckySpinAt) {
+      const lastSpin = profile.lastLuckySpinAt.toDate();
+      const now = new Date();
+      if (lastSpin.toDateString() === now.toDateString()) {
+        setHasSpunToday(true);
+      }
+    }
+  }, [profile.lastLuckySpinAt]);
+
+  const spin = async () => {
+    if (spinning || hasSpunToday) return;
+
+    setSpinning(true);
+    const spinCount = 5 + Math.floor(Math.random() * 5); // 5 to 10 full rotations
+    const randomSegment = Math.floor(Math.random() * segments.length);
+    const segmentAngle = 360 / segments.length;
+    const targetRotation = rotation + (spinCount * 360) + (randomSegment * segmentAngle);
+    
+    setRotation(targetRotation);
+
+    setTimeout(async () => {
+      const actualSegment = (segments.length - (Math.floor(targetRotation / segmentAngle) % segments.length)) % segments.length;
+      const result = segments[actualSegment];
+      setShowResult(result);
+      setSpinning(false);
+      setHasSpunToday(true);
+
+      // Save to Firebase
+      try {
+        const updateData: any = {
+          lastLuckySpinAt: serverTimestamp(),
+        };
+
+        if (result.type === "points") {
+          updateData.points = increment(result.value);
+        } else {
+          updateData.tokensBalance = increment(result.value);
+        }
+
+        await updateDoc(doc(db, 'users', profile.uid), updateData);
+      } catch (err) {
+        console.error("Spin save error:", err);
+      }
+    }, 4000);
+  };
+
+  return (
+    <section className="bg-brand-card p-6 rounded-[2.5rem] border border-brand-primary/10 shadow-xl relative overflow-hidden flex flex-col items-center">
+      <div className="absolute top-0 left-0 p-4 opacity-[0.03]">
+        <RotateCcw size={80} />
+      </div>
+      
+      <div className="flex items-center gap-3 mb-6 w-full">
+        <div className="w-10 h-10 bg-amber-500 rounded-xl flex items-center justify-center text-white shadow-lg">
+          <Gift size={20} />
+        </div>
+        <div>
+          <h3 className="text-sm font-black text-brand-text">عجلة الحظ اليومية 🎡</h3>
+          <p className="text-[9px] text-brand-text/40 font-bold">جرب حظك مرة واحدة يومياً!</p>
+        </div>
+      </div>
+
+      <div className="relative w-48 h-48 mb-6">
+        {/* Needle */}
+        <div className="absolute -top-2 left-1/2 -translate-x-1/2 z-10 text-brand-primary">
+          <div className="w-4 h-6 bg-current clip-path-polygon-[50%_100%,0%_0%,100%_0%]" style={{ clipPath: 'polygon(50% 100%, 0 0, 100% 0)' }} />
+        </div>
+
+        <motion.div 
+          className="w-full h-full rounded-full border-8 border-white shadow-2xl relative overflow-hidden"
+          animate={{ rotate: rotation }}
+          transition={{ duration: 4, ease: "circOut" }}
+        >
+          {segments.map((s, i) => {
+            const angle = 360 / segments.length;
+            return (
+              <div 
+                key={i}
+                className="absolute top-0 left-1/2 -ml-24 w-48 h-24 origin-bottom"
+                style={{ 
+                  backgroundColor: s.color,
+                  transform: `rotate(${i * angle}deg)`,
+                  clipPath: 'polygon(50% 100%, 0 0, 100% 0)'
+                }}
+              >
+                <div 
+                  className="absolute bottom-12 left-1/2 -translate-x-1/2 text-[8px] font-black text-white whitespace-nowrap rotate-180"
+                  style={{ writingMode: 'vertical-rl' }}
+                >
+                  {s.label}
+                </div>
+              </div>
+            );
+          })}
+        </motion.div>
+        
+        {/* Center button */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 bg-white rounded-full shadow-lg flex items-center justify-center z-20">
+          <div className="w-6 h-6 bg-brand-primary rounded-full" />
+        </div>
+      </div>
+
+      <button
+        onClick={spin}
+        disabled={spinning || hasSpunToday}
+        className={cn(
+          "w-full py-4 rounded-2xl text-xs font-black shadow-lg transition-all transform active:scale-95",
+          hasSpunToday ? "bg-gray-100 text-gray-400 cursor-not-allowed" : "bg-brand-primary text-white hover:scale-[1.02]"
+        )}
+      >
+        {spinning ? "جاري التدوير..." : hasSpunToday ? "نراك غداً! 👋" : "ادر العجلة الآن! ✨"}
+      </button>
+
+      {showResult && (
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="absolute inset-0 bg-white/95 flex flex-col items-center justify-center p-6 text-center z-30"
+        >
+          <div className="text-4xl mb-4">🎉</div>
+          <h4 className="text-lg font-black text-brand-text mb-2">مبروك!</h4>
+          <p className="text-xs font-bold text-brand-text/60 mb-4">
+            لقد فزت بـ <span className="text-brand-primary">{showResult.label}</span>
+          </p>
+          <button 
+            onClick={() => setShowResult(null)}
+            className="px-6 py-2 bg-brand-primary text-white rounded-xl text-[10px] font-black"
+          >
+            شكراً!
+          </button>
+        </motion.div>
+      )}
+    </section>
+  );
+};
+
 const Dashboard = ({ profile }: { profile: UserProfile }) => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [motivations, setMotivations] = useState<Motivation[]>([]);
@@ -1129,7 +1346,7 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
   };
 
   return (
-    <div className="pb-24 animate-in fade-in slide-in-from-bottom-4 duration-500 bg-summer-bg min-h-screen">
+    <div className="pb-24 animate-in fade-in slide-in-from-bottom-4 duration-500 bg-brand-bg min-h-screen">
       <Header 
         title={isParent ? 'لوحة التحكم الذكية' : `مرحباً، ${profile.displayName}`} 
         profile={profile} 
@@ -1139,8 +1356,11 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
         {/* Family Mood Dashboard */}
         <FamilyIntelligence profile={profile} />
 
-        {/* Smart Advisor Section */}
-        <SmartAdvisor profile={profile} />
+        {/* Lucky Wheel for All Users to see */}
+        <LuckyWheel profile={profile} />
+
+        {/* Silence Collector Section */}
+        <SilenceCollector profile={profile} />
 
         {/* Competition Record */}
         <CompetitionRecord family={family} tasks={tasks} />
@@ -1153,18 +1373,18 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
            <motion.section 
              initial={{ scale: 0.9, opacity: 0 }}
              animate={{ scale: 1, opacity: 1 }}
-             className="bg-summer-accent/10 p-6 rounded-3xl border border-summer-accent/20 space-y-4 shadow-xl"
+             className="bg-brand-accent/10 p-6 rounded-3xl border border-brand-accent/20 space-y-4 shadow-xl"
            >
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-summer-accent rounded-xl flex items-center justify-center text-white shadow-lg">
+                <div className="w-10 h-10 bg-brand-accent rounded-xl flex items-center justify-center text-white shadow-lg">
                   <BellRing size={20} />
                 </div>
-                <h3 className="font-bold text-summer-text">فعل التنبيهات! 🔔</h3>
+                <h3 className="font-bold text-brand-text">فعل التنبيهات! 🔔</h3>
               </div>
-              <p className="text-xs text-summer-text/60 leading-relaxed font-medium">فعل التنبيهات عشان ما تفوتك أي مهمة جديدة أو مكافأة من أهلك!</p>
+              <p className="text-xs text-brand-text/60 leading-relaxed font-medium">فعل التنبيهات عشان ما تفوتك أي مهمة جديدة أو مكافأة من أهلك!</p>
               <button 
                 onClick={requestNotifications}
-                className="w-full bg-summer-accent text-white py-4 rounded-2xl font-black shadow-lg hover:shadow-summer-accent/40 active:scale-95 transition-all text-sm"
+                className="w-full bg-brand-accent text-white py-4 rounded-2xl font-black shadow-lg hover:shadow-brand-accent/40 active:scale-95 transition-all text-sm"
               >
                 تفعيل الإشعارات الآن
               </button>
@@ -1182,8 +1402,8 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
         {!isParent && motivations.length > 0 && (
            <section className="space-y-4">
               <div className="flex justify-between items-center px-1">
-                <h3 className="text-sm font-bold text-summer-text/40 uppercase tracking-[0.2em]">كلمات تشجيعية ✨</h3>
-                <Link to="/motivation" className="text-[10px] font-black text-summer-accent">عرض الكل</Link>
+                <h3 className="text-sm font-bold text-brand-text/40 uppercase tracking-[0.2em]">كلمات تشجيعية ✨</h3>
+                <Link to="/motivation" className="text-[10px] font-black text-brand-accent">عرض الكل</Link>
               </div>
               <div className="grid grid-cols-1 gap-3">
                 {motivations.map(m => (
@@ -1191,13 +1411,13 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
                     key={m.id}
                     initial={{ scale: 0.95, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
-                    className="bg-summer-accent/10 border border-summer-accent/30 p-4 rounded-3xl flex items-center gap-4 shadow-lg group"
+                    className="bg-brand-accent/10 border border-brand-accent/30 p-4 rounded-3xl flex items-center gap-4 shadow-lg group"
                   >
-                    <div className="w-10 h-10 bg-summer-accent rounded-xl flex items-center justify-center text-white shrink-0 shadow-lg group-hover:rotate-12 transition-transform">
+                    <div className="w-10 h-10 bg-brand-accent rounded-xl flex items-center justify-center text-white shrink-0 shadow-lg group-hover:rotate-12 transition-transform">
                       <Sparkles size={20} />
                     </div>
                     <div>
-                      <p className="text-xs font-bold text-summer-text leading-relaxed">"{m.message}"</p>
+                      <p className="text-xs font-bold text-brand-text leading-relaxed">"{m.message}"</p>
                       <p className="text-[9px] text-summer-text/40 mt-1 font-black">بقلم: {m.senderName}</p>
                     </div>
                   </motion.div>
@@ -1365,7 +1585,7 @@ const AIAssistant = ({ profile }: { profile: UserProfile }) => {
     setLoading(true);
 
     try {
-      const resp = await fetch('/api/ai/chat', {
+      const data = await safeFetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1373,8 +1593,6 @@ const AIAssistant = ({ profile }: { profile: UserProfile }) => {
           history: messages
         })
       });
-      const data = await resp.json();
-      if (data.error) throw new Error(data.error);
       setMessages([...newMessages, { role: 'model' as const, parts: [{ text: data.response }] }]);
     } catch (err: any) {
       setMessages([...newMessages, { role: 'model' as const, parts: [{ text: "عذراً، واجهت مشكلة في التفكير.. هل يمكنك إعادة المحاولة؟" }] }]);
@@ -1496,7 +1714,7 @@ const CompetitionRecord = ({ family, tasks }: { family: UserProfile[], tasks: Ta
         <div className="w-10 h-10 bg-amber-400 rounded-xl flex items-center justify-center text-white shadow-lg">
           <Trophy size={20} />
         </div>
-        <h3 className="text-sm font-bold text-summer-text/40 uppercase tracking-[0.2em]">سجل التنافس العائلي 🏆</h3>
+        <h3 className="text-sm font-bold text-brand-text/40 uppercase tracking-[0.2em]">سجل التنافس العائلي 🏆</h3>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1656,8 +1874,8 @@ const HarmonyRadar = ({ family, tasks }: { profile: UserProfile, family: UserPro
   let status = "مستقر جداً";
   let colorClass = "bg-green-100 text-green-600";
   let message = "يبدو أن الجميع أنجز مهامه اليوم بحماس! أتوقع طاقة إيجابية عالية غداً. أقترح جلسة لعب جماعية في المساء.";
-  let radarColor = "bg-purple-500";
-  let radarPulse = "bg-purple-500/5";
+  let radarColor = "bg-brand-primary";
+  let radarPulse = "bg-brand-primary/5";
 
   if (score >= 90) {
     status = "مثالي ✨";
@@ -1684,7 +1902,7 @@ const HarmonyRadar = ({ family, tasks }: { profile: UserProfile, family: UserPro
   }
 
   return (
-    <section className="bg-white p-6 rounded-[2.5rem] border border-summer-primary/10 shadow-xl relative overflow-hidden">
+    <section className="bg-brand-card p-6 rounded-[2.5rem] border border-brand-primary/10 shadow-xl relative overflow-hidden">
       <div className={cn("absolute -top-10 -right-10 w-40 h-40 rounded-full animate-pulse", radarPulse)} />
       <div className="relative z-10">
         <div className="flex items-center justify-between mb-6">
@@ -1693,8 +1911,8 @@ const HarmonyRadar = ({ family, tasks }: { profile: UserProfile, family: UserPro
               <Radar size={20} className="animate-spin-slow" />
             </div>
             <div>
-              <h3 className="text-sm font-black text-summer-text tracking-tighter">رادار المشاعر المتوقع 🌈</h3>
-              <p className="text-[9px] text-summer-text/40 font-bold uppercase tracking-widest">Family Harmony Radar</p>
+              <h3 className="text-sm font-black text-brand-text tracking-tighter">رادار المشاعر المتوقع 🌈</h3>
+              <p className="text-[9px] text-brand-text/40 font-bold uppercase tracking-widest">Family Harmony Radar</p>
             </div>
           </div>
           <div className={cn("px-3 py-1 rounded-full text-[9px] font-black uppercase", colorClass)}>{status}</div>
@@ -1740,37 +1958,25 @@ const FamilyStoryWeaver = ({ profile, tasks }: { profile: UserProfile, tasks: Ta
   const [isSpeaking, setIsSpeaking] = useState(false);
   const synthRef = useRef<SpeechSynthesis | null>(window.speechSynthesis);
   
-  // Use approved or completed tasks for the story
   const completedToday = tasks.filter(t => t.status === 'approved' || t.status === 'completed');
 
   const speakStory = () => {
     if (!synthRef.current) return;
-
     if (isSpeaking) {
       synthRef.current.cancel();
       setIsSpeaking(false);
       return;
     }
-
     if (!story) return;
-
     const utterance = new SpeechSynthesisUtterance(story);
     utterance.lang = 'ar-SA';
-    
-    // Playful settings
-    utterance.pitch = 1.3; // Higher pitch for a "playful/childish" tone
-    utterance.rate = 0.9;  // Slightly slower for better clarity
-
-    // Try to pick an Arabic voice if available
+    utterance.pitch = 1.3;
+    utterance.rate = 0.9;
     const voices = synthRef.current.getVoices();
     const arabicVoice = voices.find(v => v.lang.includes('ar'));
-    if (arabicVoice) {
-      utterance.voice = arabicVoice;
-    }
-
+    if (arabicVoice) utterance.voice = arabicVoice;
     utterance.onend = () => setIsSpeaking(false);
     utterance.onerror = () => setIsSpeaking(false);
-
     setIsSpeaking(true);
     synthRef.current.speak(utterance);
   };
@@ -1780,37 +1986,32 @@ const FamilyStoryWeaver = ({ profile, tasks }: { profile: UserProfile, tasks: Ta
     setLoading(true);
     try {
       const achievements = completedToday.slice(0, 5).map(t => `${t.assignedToName} أنجز مهمة: ${t.title}`).join('، ');
-      const prompt = `بناءً على هذه الإنجازات اليومية للعائلة: ${achievements}. اكتب قصة قصيرة جداً ومشجعة (بأسلوب الحكواتي) للأطفال تجعلهم أبطالاً خارقين. اجعلها باللغة العربية الودودة ومختصرة جداً (فقرة واحدة فقط) لتناسب بطاقة واجهة مستخدم. قل "كان يا مكان" في البداية.`;
-      
-      const resp = await fetch('/api/ai', {
+      const prompt = `بناءً على هذه الإنجازات اليومية للعائلة: ${achievements}. اكتب قصة قصيرة جداً ومشجعة للأطفال تجعلهم أبطالاً خارقين. اجعلها باللغة العربية ومختصرة.`;
+      const data = await safeFetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt })
       });
-      
-      const data = await resp.json();
-      if (data.response) {
-        setStory(data.response);
-      } else {
-        // Fallback if API fails or no key
-        setStory(`"كان يا مكان، في قلعة السعادة اليوم، قام الأبطال ${completedToday[0].assignedToName} ورفاقه بمهام عظيمة، مما جعل المملكة كلها تفتخر بصورة إنجازاتهم الرائعة!"`);
-      }
+      if (data.response) setStory(data.response);
+      else setStory(`"كان يا مكان، في سماء الإنجازات اليوم، حلق أبطالنا عالياً بمهامهم الرائعة!"`);
     } catch (err) {
-      console.error("Story generation failed:", err);
-      setStory(`"كان يا مكان، وفي قلعة آل خليل، قام الفارس ${completedToday[0].assignedToName} بمهمة عظيمة وهي ${completedToday[0].title}، ونشر السعادة في كل الأرجاء!"`);
+      console.error(err);
+      setStory(`"مغامرة رائعة تمت اليوم، بانتظار المزيد غداً!"`);
     } finally {
       setLoading(false);
     }
   };
 
+  // Removed automatic effect to prevent quota exhaustion
   useEffect(() => {
-    if (completedToday.length > 0 && !story && !loading) {
-      generateStory();
+    // Initial fetch only if one isn't there, or just keep it manual
+    if (completedToday.length > 0 && !story) {
+       generateStory();
     }
-  }, [completedToday.length]);
+  }, []); // Only once on mount if data is ready
 
   return (
-    <section className="bg-summer-card p-6 rounded-[2.5rem] border border-white/40 shadow-xl relative overflow-hidden group">
+    <section className="bg-brand-card p-6 rounded-[2.5rem] border border-white/40 shadow-xl relative overflow-hidden group">
       <div className="absolute top-0 right-0 p-4 opacity-[0.03] group-hover:rotate-12 transition-transform">
         <BookOpen size={80} />
       </div>
@@ -1818,127 +2019,246 @@ const FamilyStoryWeaver = ({ profile, tasks }: { profile: UserProfile, tasks: Ta
         <div className="w-10 h-10 bg-indigo-500 rounded-xl flex items-center justify-center text-white shadow-lg">
           <BookOpen size={20} />
         </div>
-        <h3 className="text-sm font-black text-summer-text">حكواتي العائلة الذكي 📖</h3>
+        <h3 className="text-sm font-black text-brand-text">حكواتي العائلة الذكي 📖</h3>
       </div>
-      <p className="text-[10px] text-summer-text/60 mb-4 font-bold leading-relaxed">
-        تحويل إنجازات اليوم إلى قصص خيالية أبطالها أطفالك!
-      </p>
       
       {loading ? (
-        <div className="py-8 flex flex-col items-center justify-center animate-pulse">
-           <Sparkles className="text-indigo-500 mb-2 animate-bounce" size={24} />
-           <p className="text-[10px] font-black text-indigo-700 italic">جاري تأليف حكاية إنجازاتكم...</p>
+        <div className="py-12 flex flex-col items-center justify-center space-y-3">
+          <div className="w-10 h-10 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin" />
+          <p className="text-[9px] font-black text-indigo-500/60 uppercase">الذكاء الاصطناعي ينسج القصة...</p>
         </div>
       ) : completedToday.length > 0 ? (
         <div className="space-y-3">
-          <motion.div 
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="p-4 rounded-2xl bg-white/40 border border-white/60"
-          >
-            <p className="text-[10px] font-bold text-indigo-700 mb-2 flex items-center gap-1">
-              <Star size={10} /> قصة الليلة:
-            </p>
-            <p className="text-[11px] text-summer-text leading-relaxed italic font-medium">
-              {story || "بانتظار الإلهام السحري..."}
-            </p>
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-4 rounded-2xl bg-white/40 border border-white/60">
+            <p className="text-[10px] font-bold text-indigo-700 mb-2 flex items-center gap-1"><Star size={10} /> قصة الليلة:</p>
+            <p className="text-[11px] text-brand-text leading-relaxed italic font-medium">{story || "بانتظار الإلهام..."}</p>
           </motion.div>
           <div className="flex gap-2">
-            <button 
-              onClick={generateStory}
-              className="flex-1 py-3 bg-white border border-indigo-100 text-indigo-600 rounded-2xl text-[10px] font-black hover:bg-indigo-50 transition-colors shadow-sm"
-            >
-              تحديث القصة ✨
-            </button>
-            <button 
-              onClick={speakStory}
-              className={cn(
-                "px-4 py-3 rounded-2xl text-[10px] font-black shadow-sm transition-all",
-                isSpeaking ? "bg-red-50 text-red-600 border border-red-100" : "bg-indigo-50 text-indigo-600"
-              )}
-            >
+            <button onClick={generateStory} className="flex-1 py-3 bg-white border border-indigo-100 text-indigo-600 rounded-2xl text-[10px] font-black hover:bg-indigo-50 transition-colors">تحديث ✨</button>
+            <button onClick={speakStory} className={cn("px-4 py-3 rounded-2xl text-[10px] font-black", isSpeaking ? "bg-red-50 text-red-600" : "bg-indigo-50 text-indigo-600")}>
               {isSpeaking ? <VolumeX size={16} /> : <Volume2 size={16} />}
             </button>
           </div>
         </div>
       ) : (
-        <div className="p-6 text-center border-2 border-dashed border-summer-primary/10 rounded-3xl bg-white/10">
-           <p className="text-[10px] text-summer-text/40 font-bold">أكمل مهامك اليوم لتظهر في قصة الليلة! قل لأمك أو أبيك أن يوافقوا على مهامك المكتملة.</p>
+        <div className="p-6 text-center border-2 border-dashed border-brand-primary/10 rounded-3xl bg-white/10">
+           <p className="text-[10px] text-brand-text/40 font-bold">أكمل مهامك اليوم لتظهر في قصة الليلة!</p>
         </div>
       )}
     </section>
   );
 };
 
-const FlashInstantQuest = ({ isParent }: { profile: UserProfile, isParent: boolean }) => {
+
+const FlashInstantQuest = ({ profile, isParent }: { profile: UserProfile, isParent: boolean }) => {
+  const [activeChallenge, setActiveChallenge] = useState<any>(null);
+  const [timeLeft, setTimeLeft] = useState(0);
+  const [completing, setCompleting] = useState(false);
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'config', 'flash_challenge'), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        const now = Date.now();
+        const expiresAt = data.expiresAt?.toMillis();
+        if (expiresAt > now) {
+          setActiveChallenge(data);
+          setTimeLeft(Math.floor((expiresAt - now) / 1000));
+        } else {
+          setActiveChallenge(null);
+        }
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    let timer: any;
+    if (timeLeft > 0 && activeChallenge) {
+      timer = setInterval(() => setTimeLeft(prev => prev - 1), 1000);
+    } else if (timeLeft <= 0) {
+      setActiveChallenge(null);
+    }
+    return () => clearInterval(timer);
+  }, [timeLeft, activeChallenge]);
+
+  const triggerChallenge = async () => {
+    const challenges = [
+      { title: "بر الوالدين", msg: "أسرع! قبل انتهاء العداد.. اذهب وقبّل يد والديك وأخبرهما بسر تحبه فيهما!", reward: 10 },
+      { title: "التعاون العائلي", msg: "أحضر كوب ماء بارد لأخيك أو أختك وابتسم في وجههما!", reward: 10 },
+      { title: "ترتيب سريع", msg: "رتب 5 أشياء مبعثرة في الصالة خلال 60 ثانية!", reward: 15 },
+      { title: "ذكر الله", msg: "سبح الله 33 مرة واحمد الله 33 مرة وكبر الله 33 مرة!", reward: 20 },
+    ];
+    const c = challenges[Math.floor(Math.random() * challenges.length)];
+    await setDoc(doc(db, 'config', 'flash_challenge'), {
+      ...c,
+      expiresAt: new Date(Date.now() + 60000),
+      triggeredBy: profile.uid
+    });
+  };
+
+  const completeChallenge = async () => {
+    if (!activeChallenge) return;
+    setCompleting(true);
+    try {
+      await updateDoc(doc(db, 'users', profile.uid), {
+        tokensBalance: (profile.tokensBalance || 0) + activeChallenge.reward
+      });
+      alert(`يا بطل! حصلت على ${activeChallenge.reward} توكن! ⚡`);
+      setActiveChallenge(null);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setCompleting(false);
+    }
+  };
+
+  if (!activeChallenge && !isParent) return null;
+
   return (
-    <section className="bg-summer-accent/10 p-6 rounded-[2.5rem] border border-summer-accent/20 shadow-xl relative overflow-hidden group">
+    <section className="bg-brand-accent/10 p-6 rounded-[2.5rem] border border-brand-accent/20 shadow-xl relative overflow-hidden group">
       <div className="absolute top-0 right-0 p-4 opacity-[0.03] group-hover:scale-110 transition-transform">
         <Zap size={80} />
       </div>
       <div className="flex items-center gap-3 mb-4">
-        <div className="w-10 h-10 bg-summer-accent rounded-xl flex items-center justify-center text-white shadow-lg">
-          <Zap size={20} className="animate-pulse" />
+        <div className="w-10 h-10 bg-brand-accent rounded-xl flex items-center justify-center text-white shadow-lg">
+          <Zap size={20} className={activeChallenge ? "animate-pulse" : ""} />
         </div>
-        <h3 className="text-sm font-black text-summer-text">تحدي "فلاش" المفاجئ ⚡</h3>
+        <h3 className="font-black text-brand-text">تحدي "فلاش" المفاجئ ⚡</h3>
       </div>
       
-      <div className="bg-white/40 p-4 rounded-2xl border border-white/60 mb-4">
-        <div className="flex justify-between items-center mb-2">
-          <span className="text-[9px] font-black text-summer-accent flex items-center gap-1">
-            <Clock size={10} /> ينتهي خلال 60 ثانية
-          </span>
-          <span className="text-[10px] font-black text-summer-text">العبرة: بر الوالدين</span>
-        </div>
-        <p className="text-xs font-bold text-summer-text leading-relaxed">
-          "أسرع! قبل انتهاء العداد.. اذهب وقبّل يد والديك وأخبرهما بسر تحبه فيهما!"
-        </p>
-      </div>
+      {activeChallenge ? (
+        <div className="space-y-4">
+          <div className="bg-white/40 p-4 rounded-2xl border border-white/60">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-[9px] font-black text-brand-accent flex items-center gap-1">
+                <Clock size={10} /> ينتهي خلال {timeLeft} ثانية
+              </span>
+              <span className="text-[10px] font-black text-brand-text">العبرة: {activeChallenge.title}</span>
+            </div>
+            <p className="text-xs font-bold text-brand-text leading-relaxed">
+              "{activeChallenge.msg}"
+            </p>
+          </div>
 
-      <button className="w-full py-3 bg-summer-accent text-white rounded-2xl text-xs font-black shadow-lg hover:scale-[1.02] active:scale-95 transition-all">
-        تم الإنجاز! (كسب 10 توكن)
-      </button>
+          <button 
+            onClick={completeChallenge}
+            disabled={completing}
+            className="w-full py-3 bg-brand-accent text-white rounded-2xl text-xs font-black shadow-lg hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50"
+          >
+            {completing ? 'جاري الحفظ...' : `تم الإنجاز! (كسب ${activeChallenge.reward} توكن)`}
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-4">
+           <p className="text-xs font-bold text-brand-text opacity-60">لا يوجد تحدي نشط حالياً. اضغط الزر بالأسفل لإرسال تحدي مفاجئ لجميع أفراد العائلة!</p>
+           <button 
+             onClick={triggerChallenge}
+             className="w-full py-3 bg-brand-primary text-white rounded-2xl text-xs font-black shadow-lg hover:scale-[1.02] active:scale-95 transition-all"
+           >
+             تفعيل تحدي فلاش الآن! ⚡
+           </button>
+        </div>
+      )}
     </section>
   );
 };
 
-const TreasureMapPreview = ({ tasks }: { profile: UserProfile, tasks: Task[] }) => {
+const TreasureMapPreview = ({ profile, tasks }: { profile: UserProfile, tasks: Task[] }) => {
+  // Use a centralized config for "Treasure Map Activation"
+  const [isActivated, setIsActivated] = useState(false);
+  const isParent = profile.role === 'parent';
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'config', 'treasure_map'), (snap) => {
+      if (snap.exists()) {
+        setIsActivated(snap.data().active);
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  const toggleActivation = async () => {
+    await setDoc(doc(db, 'config', 'treasure_map'), { active: !isActivated }, { merge: true });
+  };
+
+  // Show user's task progress
+  const userTasks = profile.role === 'child' ? tasks.filter(t => t.assignedTo === profile.uid) : tasks;
+  const completedCount = userTasks.filter(t => t.status === 'approved' || t.status === 'completed').length;
+  const targetCount = 10; // A major treasure for every 10 tasks
+
+  if (!isActivated && !isParent) return (
+    <section className="bg-brand-card p-8 rounded-[2.5rem] border border-white/20 shadow-xl opacity-60 text-center">
+       <Map size={48} className="mx-auto mb-4 text-brand-primary opacity-20" />
+       <h3 className="font-black text-brand-text mb-2">خريطة الكنز 🗺️</h3>
+       <p className="text-xs font-bold text-brand-text/40">بانتظار تفعيل الخريطة من قبل المشرف العائلي لبدء رحلة البحث عن الكنز!</p>
+    </section>
+  );
+
   return (
     <section className="space-y-4">
-      <div className="flex items-center gap-3 px-1">
-        <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center text-white shadow-lg">
-          <Map size={20} />
+      <div className="flex items-center justify-between px-1">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center text-white shadow-lg">
+            <Map size={20} />
+          </div>
+          <div>
+            <h3 className="text-sm font-black text-brand-text tracking-tighter">خريطة الكنز التفاعلية 🗺️</h3>
+            <p className="text-[9px] text-brand-text/40 font-bold uppercase tracking-widest">Interactive Treasure Map</p>
+          </div>
         </div>
-        <div>
-          <h3 className="text-sm font-black text-summer-text tracking-tighter">خريطة الكنز التفاعلية 🗺️</h3>
-          <p className="text-[9px] text-summer-text/40 font-bold uppercase tracking-widest">Interactive Treasure Map</p>
-        </div>
+        {isParent && (
+          <button 
+            onClick={toggleActivation}
+            className={cn(
+              "px-4 py-2 rounded-xl text-[10px] font-black transition-all shadow-md",
+              isActivated ? "bg-red-500 text-white" : "bg-emerald-500 text-white"
+            )}
+          >
+            {isActivated ? 'إلغاء الخريطة' : 'تفعيل الخريطة'}
+          </button>
+        )}
       </div>
 
-      <div className="bg-summer-card p-6 rounded-[2.5rem] border border-white/40 shadow-xl overflow-x-auto no-scrollbar">
+      <div className={cn(
+        "bg-brand-card p-6 rounded-[2.5rem] border border-white/40 shadow-xl overflow-x-auto no-scrollbar transition-all",
+        !isActivated && "grayscale opacity-50 pointer-events-none"
+      )}>
         <div className="flex items-center gap-4 min-w-max pb-2">
-           <div className="w-16 h-16 rounded-3xl bg-emerald-100 border-2 border-emerald-500 flex items-center justify-center text-emerald-600 relative shrink-0">
+           <div className={cn(
+             "w-16 h-16 rounded-3xl border-2 flex items-center justify-center relative shrink-0 transition-all",
+             completedCount >= 1 ? "bg-emerald-100 border-emerald-500 text-emerald-600" : "bg-white/10 border-dashed border-emerald-500/30 text-emerald-500/40"
+           )}>
              <Target size={24} />
-             <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-emerald-500 rounded-full border-2 border-white flex items-center justify-center text-[10px] text-white font-black">✓</div>
+             {completedCount >= 1 && <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-emerald-500 rounded-full border-2 border-white flex items-center justify-center text-[10px] text-white font-black">✓</div>}
            </div>
            
-           <div className="w-12 h-1 bg-emerald-200 rounded-full shrink-0" />
+           <div className={cn("w-12 h-1 rounded-full shrink-0", completedCount >= 1 ? "bg-emerald-200" : "bg-white/10")} />
 
-           {[1, 2, 3].map((i) => (
-             <React.Fragment key={i}>
-                <div className="w-16 h-16 rounded-3xl bg-white/10 border-2 border-dashed border-emerald-500/30 flex items-center justify-center text-emerald-500/40 relative shrink-0">
-                  <span className="text-[10px] font-black">المهمة {i+1}</span>
+           {[2, 4, 6, 8].map((step) => (
+             <React.Fragment key={step}>
+                <div className={cn(
+                  "w-16 h-16 rounded-3xl border-2 flex items-center justify-center relative shrink-0 transition-all",
+                  completedCount >= step ? "bg-emerald-100 border-emerald-500 text-emerald-600" : "bg-white/10 border-dashed border-emerald-500/30 text-emerald-500/40"
+                )}>
+                  <span className="text-[10px] font-black">المهمة {step}</span>
+                  {completedCount >= step && <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-emerald-500 rounded-full border-2 border-white flex items-center justify-center text-[10px] text-white font-black">✓</div>}
                 </div>
-                <div className="w-12 h-1 bg-emerald-100 rounded-full shrink-0" />
+                <div className={cn("w-12 h-1 rounded-full shrink-0", completedCount >= step ? "bg-emerald-200" : "bg-white/10")} />
              </React.Fragment>
            ))}
 
-           <div className="w-20 h-20 rounded-[2rem] summer-gradient flex items-center justify-center text-white shadow-xl relative shrink-0 animate-bounce">
-             <Flag size={32} />
+           <div className={cn(
+             "w-20 h-20 rounded-[2rem] flex items-center justify-center text-white shadow-xl relative shrink-0 transition-all",
+             completedCount >= targetCount ? "brand-gradient animate-bounce" : "bg-white/10 border-2 border-dashed border-brand-primary/20"
+           )}>
+             <Flag size={32} className={completedCount >= targetCount ? "opacity-100" : "opacity-20"} />
              <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-amber-400 px-3 py-1 rounded-full text-[9px] font-black shadow-lg">الكنز الكبير</div>
            </div>
         </div>
-        <p className="mt-4 text-[10px] text-summer-text/40 font-bold text-center">أكمل 4 مهام متبقية لفتح صندوق الكنز الرقمي!</p>
+        <p className="mt-4 text-[10px] text-brand-text/40 font-bold text-center">
+          {!isActivated ? "الخريطة مغلقة حالياً" : completedCount >= targetCount ? "مبروك! لقد وصلت للكنز! 🎉" : `أكمل ${targetCount - (completedCount % targetCount)} مهام إضافية لفتح صندوق الكنز الرقمي!`}
+        </p>
       </div>
     </section>
   );
@@ -1946,7 +2266,7 @@ const TreasureMapPreview = ({ tasks }: { profile: UserProfile, tasks: Task[] }) 
 
 const AINegotiator = ({ profile }: { profile: UserProfile }) => {
   return (
-    <section className="bg-white p-6 rounded-[2.5rem] border border-summer-primary/10 shadow-xl relative overflow-hidden group">
+    <section className="bg-brand-card p-6 rounded-[2.5rem] border border-brand-primary/10 shadow-xl relative overflow-hidden group">
       <div className="absolute bottom-0 right-0 p-4 opacity-[0.03] group-hover:-translate-y-2 transition-transform">
         <Scale size={80} />
       </div>
@@ -1954,7 +2274,7 @@ const AINegotiator = ({ profile }: { profile: UserProfile }) => {
         <div className="w-10 h-10 bg-blue-500 rounded-xl flex items-center justify-center text-white shadow-lg">
           <Handshake size={20} />
         </div>
-        <h3 className="text-sm font-black text-summer-text">المفاوض الذكي 🤝</h3>
+        <h3 className="text-sm font-black text-brand-text">المفاوض الذكي 🤝</h3>
       </div>
       
       <div className="space-y-4">
@@ -1962,7 +2282,7 @@ const AINegotiator = ({ profile }: { profile: UserProfile }) => {
           <p className="text-[10px] font-bold text-blue-700 flex items-center gap-2 mb-2">
             <Sparkles size={12} /> عرض تفاوضي جديد:
           </p>
-          <p className="text-[11px] text-summer-text leading-relaxed font-medium">
+          <p className="text-[11px] text-brand-text leading-relaxed font-medium">
             "ناقصك 50 توكن لشراء اللعبة؟ اقترح عليك 'عقد التفوق': حل 5 تمارين ذكاء إضافية وسأمنحك خصم 20%!"
           </p>
         </div>
@@ -2220,7 +2540,7 @@ const FamilyIntelligence = ({ profile }: { profile: UserProfile }) => {
     setLoading(true);
     setAiSuggestion(null);
     try {
-      const resp = await fetch('/api/ai', {
+      const data = await safeFetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2228,7 +2548,6 @@ const FamilyIntelligence = ({ profile }: { profile: UserProfile }) => {
           systemInstruction: "أنت خبير في السعادة العائلية. قدم اقتراحات مبدعة ومحببة."
         })
       });
-      const data = await resp.json();
       setAiSuggestion(data.response);
     } catch (err) {
       setAiSuggestion('ما رأيكم ببعض القراءة الممتعة معاً؟ 📚');
@@ -2238,16 +2557,16 @@ const FamilyIntelligence = ({ profile }: { profile: UserProfile }) => {
   };
 
   return (
-    <section className="bg-gradient-to-tr from-white/90 to-summer-primary/5 p-6 rounded-[2.5rem] border border-white/60 shadow-2xl backdrop-blur-sm relative overflow-hidden group">
-      <div className="absolute top-0 right-0 w-32 h-32 bg-summer-primary/5 rounded-full -mr-16 -mt-16 blur-3xl group-hover:bg-summer-primary/10 transition-colors duration-1000"></div>
+    <section className="bg-gradient-to-tr from-white/90 to-brand-primary/5 p-6 rounded-[2.5rem] border border-white/60 shadow-2xl backdrop-blur-sm relative overflow-hidden group">
+      <div className="absolute top-0 right-0 w-32 h-32 bg-brand-primary/5 rounded-full -mr-16 -mt-16 blur-3xl group-hover:bg-brand-primary/10 transition-colors duration-1000"></div>
       
       <div className="flex items-center gap-3 mb-6 relative z-10">
-        <div className="w-10 h-10 bg-summer-primary/20 rounded-2xl flex items-center justify-center text-summer-primary shadow-inner">
+        <div className="w-10 h-10 bg-brand-primary/20 rounded-2xl flex items-center justify-center text-brand-primary shadow-inner">
           <Zap size={20} className="fill-current" />
         </div>
         <div>
-           <h3 className="text-xs font-black text-summer-text uppercase tracking-widest leading-none mb-1">نبض العائلة الذكي</h3>
-           <p className="text-[9px] text-summer-text/40 font-bold tracking-tight">إبداع متواصل برؤية ذكية</p>
+           <h3 className="text-xs font-black text-brand-text uppercase tracking-widest leading-none mb-1">نبض العائلة الذكي</h3>
+           <p className="text-[9px] text-brand-text/40 font-bold tracking-tight">إبداع متواصل برؤية ذكية</p>
         </div>
       </div>
       
@@ -2258,7 +2577,7 @@ const FamilyIntelligence = ({ profile }: { profile: UserProfile }) => {
             onClick={() => getSmartIdea(m.id, m.label)}
             className={cn(
               "flex flex-col items-center gap-3 p-4 rounded-3xl border transition-all duration-500 relative overflow-hidden group",
-              mood === m.id ? "bg-white border-summer-primary shadow-xl scale-105" : "bg-white/40 border-transparent hover:bg-white/60"
+              mood === m.id ? "bg-white border-brand-primary shadow-xl scale-105" : "bg-white/40 border-transparent hover:bg-white/60"
             )}
           >
             {mood === m.id && <motion.div layoutId="mood-bg" className="absolute inset-0 bg-summer-primary/5" />}
@@ -2326,8 +2645,8 @@ const TaskComments = ({ taskId, profile }: { taskId: string, profile: UserProfil
           <div key={c.id} className="flex gap-2 items-start">
             <img src={c.userPhoto} className="w-6 h-6 rounded-full border border-white/20" alt="" />
             <div className="bg-white/30 rounded-2xl px-3 py-2 flex-1">
-              <p className="text-[9px] font-black text-summer-accent/70 mb-0.5">{c.userName}</p>
-              <p className="text-xs text-summer-text font-medium">{c.content}</p>
+              <p className="text-[9px] font-black text-brand-accent/70 mb-0.5">{c.userName}</p>
+              <p className="text-xs text-brand-text font-medium">{c.content}</p>
             </div>
           </div>
         ))}
@@ -2335,14 +2654,14 @@ const TaskComments = ({ taskId, profile }: { taskId: string, profile: UserProfil
       <div className="flex gap-2">
         <input 
           placeholder="إضافة تعليق..."
-          className="flex-1 bg-white/20 border border-white/30 rounded-xl px-4 py-2 text-xs text-summer-text outline-none focus:border-summer-accent/50 placeholder:text-summer-text/30"
+          className="flex-1 bg-white/20 border border-white/30 rounded-xl px-4 py-2 text-xs text-brand-text outline-none focus:border-brand-accent/50 placeholder:text-brand-text/30"
           value={newComment}
           onChange={(e) => setNewComment(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && postComment()}
         />
         <button 
           onClick={postComment}
-          className="p-2 bg-summer-accent/10 text-summer-accent rounded-xl hover:bg-summer-accent transition-colors hover:text-white"
+          className="p-2 bg-brand-accent/10 text-brand-accent rounded-xl hover:bg-brand-accent transition-colors hover:text-white"
         >
           <MessageSquare size={16} />
         </button>
@@ -2353,9 +2672,9 @@ const TaskComments = ({ taskId, profile }: { taskId: string, profile: UserProfil
 
 const TaskTimeline = ({ task }: { task: Task }) => {
   const steps = [
-    { label: 'تمت الإضافة', date: task.createdAt, icon: PlusCircle, color: 'text-summer-primary' },
+    { label: 'تمت الإضافة', date: task.createdAt, icon: PlusCircle, color: 'text-brand-primary' },
     { label: 'بانتظار المراجعة', date: task.completedAt, icon: CheckCircle2, color: 'text-emerald-500' },
-    { label: 'تم الاعتماد', date: task.approvedAt, icon: Star, color: 'text-summer-accent' }
+    { label: 'تم الاعتماد', date: task.approvedAt, icon: Star, color: 'text-brand-accent' }
   ];
 
   return (
@@ -2367,11 +2686,11 @@ const TaskTimeline = ({ task }: { task: Task }) => {
             <div className="flex flex-col items-center gap-1.5 relative">
               <div className={cn(
                 "w-8 h-8 rounded-full flex items-center justify-center border-2 transition-all duration-500",
-                isActive ? `${step.color} border-current bg-white/20` : "text-summer-text/10 border-summer-text/10"
+                isActive ? `${step.color} border-current bg-white/20` : "text-brand-text/10 border-brand-text/10"
               )}>
                 <step.icon size={14} />
               </div>
-              <span className={cn("text-[8px] font-bold uppercase tracking-tighter", isActive ? "text-summer-text" : "text-summer-text/20")}>
+              <span className={cn("text-[8px] font-bold uppercase tracking-tighter", isActive ? "text-brand-text" : "text-brand-text/20")}>
                 {step.label}
               </span>
             </div>
@@ -2578,7 +2897,7 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
               onClick={() => setShowArchive(false)}
               className={cn(
                 "flex-1 py-3 rounded-xl text-xs font-black transition-all",
-                !showArchive ? "bg-summer-accent text-white shadow-lg" : "text-summer-text/40 hover:text-summer-text"
+                !showArchive ? "bg-brand-accent text-white shadow-lg" : "text-brand-text/40 hover:text-brand-text"
               )}
             >
               المهام النشطة
@@ -2587,7 +2906,7 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
               onClick={() => setShowArchive(true)}
               className={cn(
                 "flex-1 py-3 rounded-xl text-xs font-black transition-all",
-                showArchive ? "bg-summer-accent text-white shadow-lg" : "text-summer-text/40 hover:text-summer-text"
+                showArchive ? "bg-brand-accent text-white shadow-lg" : "text-brand-text/40 hover:text-brand-text"
               )}
             >
               الأرشيف (مكتمل)
@@ -2598,7 +2917,7 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
         {isParent && !showArchive && (
           <button 
             onClick={() => setShowAdd(!showAdd)}
-            className="w-full bg-summer-primary text-white rounded-2xl py-5 font-bold flex items-center justify-center gap-3 shadow-xl hover:bg-summer-primary/90 transition-all active:scale-95"
+            className="w-full bg-brand-primary text-white rounded-2xl py-5 font-bold flex items-center justify-center gap-3 shadow-xl hover:bg-brand-primary/90 transition-all active:scale-95"
           >
             <PlusCircle size={24} />
             <span className="text-lg">إضافة مهمة جديدة</span>
@@ -2613,10 +2932,10 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
               exit={{ height: 0, opacity: 0 }}
               className="overflow-hidden"
             >
-              <div className="bg-summer-card p-6 rounded-3xl border border-white/40 space-y-4 shadow-2xl">
+              <div className="bg-brand-card p-6 rounded-3xl border border-white/40 space-y-4 shadow-2xl">
                 <input 
                   placeholder="اسم المهمة (مثلاً: تنظيف المطبخ)"
-                  className="w-full bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-summer-text placeholder:text-summer-text/30 focus:border-summer-accent outline-none transition-colors"
+                  className="w-full bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-brand-text placeholder:text-brand-text/30 focus:border-brand-accent outline-none transition-colors"
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
                 />
@@ -2626,7 +2945,7 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
                       onClick={() => setNewRewardType('points')}
                       className={cn(
                         "flex-1 py-3 rounded-xl text-[10px] font-black transition-all",
-                        newRewardType === 'points' ? "bg-summer-accent text-white shadow-md" : "text-summer-text/40"
+                        newRewardType === 'points' ? "bg-brand-accent text-white shadow-md" : "text-brand-text/40"
                       )}
                     >
                       نقاط عادية
@@ -2635,7 +2954,7 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
                       onClick={() => setNewRewardType('tokens')}
                       className={cn(
                         "flex-1 py-3 rounded-xl text-[10px] font-black transition-all",
-                        newRewardType === 'tokens' ? "bg-amber-500 text-white shadow-md" : "text-summer-text/40"
+                        newRewardType === 'tokens' ? "bg-amber-500 text-white shadow-md" : "text-brand-text/40"
                       )}
                     >
                       توكن نادرة
@@ -2644,37 +2963,37 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
                   <input 
                     type="number"
                     placeholder="الكمية"
-                    className="w-1/3 bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-summer-text outline-none focus:border-summer-accent placeholder:text-summer-text/30"
+                    className="w-1/3 bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-brand-text outline-none focus:border-brand-accent placeholder:text-brand-text/30"
                     value={newRewardAmount}
                     onChange={(e) => setNewRewardAmount(Number(e.target.value))}
                   />
                 </div>
                 <select 
-                  className="w-full bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-summer-text outline-none focus:border-summer-accent appearance-none placeholder:text-summer-text/30"
+                  className="w-full bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-brand-text outline-none focus:border-brand-accent appearance-none placeholder:text-brand-text/30"
                   value={newAssigned}
                   onChange={(e) => setNewAssigned(e.target.value)}
                 >
-                  <option value="" className="bg-summer-card text-summer-text">تعيين إلى...</option>
+                  <option value="" className="bg-brand-card text-brand-text">تعيين إلى...</option>
                   {family.filter(f => f.role === 'child').map(f => (
-                    <option key={f.uid} value={f.uid} className="bg-summer-card text-summer-text">{f.displayName}</option>
+                    <option key={f.uid} value={f.uid} className="bg-brand-card text-brand-text">{f.displayName}</option>
                   ))}
                 </select>
                 
                 <div className="flex gap-4">
                   <div className="flex-1">
-                    <label className="text-[10px] font-black text-summer-text/40 uppercase tracking-widest mb-1 block px-1">وقت البدء</label>
+                    <label className="text-[10px] font-black text-brand-text/40 uppercase tracking-widest mb-1 block px-1">وقت البدء</label>
                     <input 
                       type="time"
-                      className="w-full bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-summer-text outline-none focus:border-summer-accent transition-colors"
+                      className="w-full bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-brand-text outline-none focus:border-brand-accent transition-colors"
                       value={newStartTime}
                       onChange={(e) => setNewStartTime(e.target.value)}
                     />
                   </div>
                   <div className="flex-1">
-                    <label className="text-[10px] font-black text-summer-text/40 uppercase tracking-widest mb-1 block px-1">وقت الانتهاء</label>
+                    <label className="text-[10px] font-black text-brand-text/40 uppercase tracking-widest mb-1 block px-1">وقت الانتهاء</label>
                     <input 
                       type="time"
-                      className="w-full bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-summer-text outline-none focus:border-summer-accent transition-colors"
+                      className="w-full bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-brand-text outline-none focus:border-brand-accent transition-colors"
                       value={newEndTime}
                       onChange={(e) => setNewEndTime(e.target.value)}
                     />
@@ -2690,7 +3009,7 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
 
                 <button 
                   onClick={addTask}
-                  className="w-full summer-gradient text-white py-4 rounded-2xl font-black text-lg hover:shadow-lg transition-all shadow-lg active:scale-95"
+                  className="w-full brand-gradient text-white py-4 rounded-2xl font-black text-lg hover:shadow-lg transition-all shadow-lg active:scale-95"
                 >
                   حفظ المهمة ومشاركتها
                 </button>
@@ -3133,7 +3452,7 @@ const ChatPage = ({ profile }: { profile: UserProfile }) => {
     setShowSummary(true);
     try {
       const chatContext = messages.slice(-20).map(m => `${m.senderName}: ${m.content}`).join('\n');
-      const resp = await fetch('/api/ai', {
+      const data = await safeFetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -3141,7 +3460,6 @@ const ChatPage = ({ profile }: { profile: UserProfile }) => {
           context: { chat: chatContext }
         })
       });
-      const data = await resp.json();
       setAiSummary(data.response);
     } catch (err) {
       setAiSummary('فشل في تلخيص المحادثة.. يبدو أن الجميع يتحدثون في وقت واحد! 😅');
@@ -3152,7 +3470,7 @@ const ChatPage = ({ profile }: { profile: UserProfile }) => {
 
   const handleAIReply = async (userPrompt: string) => {
     try {
-      const resp = await fetch('/api/ai/chat', {
+      const data = await safeFetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -3163,7 +3481,6 @@ const ChatPage = ({ profile }: { profile: UserProfile }) => {
           }))
         })
       });
-      const data = await resp.json();
       
       await addDoc(collection(db, 'messages'), {
         senderId: 'ai-bot',
@@ -3766,22 +4083,47 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
 const SettingsPage = ({ profile }: { profile: UserProfile }) => {
   const [rate, setRate] = useState(0.25);
   const [saving, setSaving] = useState(false);
-  const [smartMode, setSmartMode] = useState(() => localStorage.getItem('family_smart_mode') !== 'false');
+  const isParent = profile.role === 'parent';
 
   useEffect(() => {
-    getDoc(doc(db, 'config', 'family_settings')).then(snap => {
-      if (snap.exists()) setRate(snap.data().pointExchangeRate || 0.25);
-    });
-  }, []);
+    if (isParent) {
+      getDoc(doc(db, 'config', 'family_settings')).then(snap => {
+        if (snap.exists()) setRate(snap.data().pointExchangeRate || 0.25);
+      });
+    }
+  }, [isParent]);
 
   const saveSettings = async () => {
     setSaving(true);
-    await updateDoc(doc(db, 'config', 'family_settings'), {
+    await setDoc(doc(db, 'config', 'family_settings'), {
       pointExchangeRate: Number(rate)
-    });
-    localStorage.setItem('family_smart_mode', String(smartMode));
+    }, { merge: true });
     setSaving(false);
-    alert('تم حفظ الإعدادات بنجاح. قد تحتاج لإعادة تحميل الصفحة لتطبيق بعض التغييرات الذكية.');
+    alert('تم حفظ الإعدادات بنجاح.');
+  };
+
+  const updateTheme = async (theme: ThemeType) => {
+    try {
+      await updateDoc(doc(db, 'users', profile.uid), { theme });
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const updateBgColor = async (color: string) => {
+    try {
+      await updateDoc(doc(db, 'users', profile.uid), { customBgColor: color });
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const updateAccentColor = async (color: string) => {
+    try {
+      await updateDoc(doc(db, 'users', profile.uid), { customAccentColor: color });
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const requestNotifications = async () => {
@@ -3791,73 +4133,131 @@ const SettingsPage = ({ profile }: { profile: UserProfile }) => {
     }
     const permission = await Notification.requestPermission();
     if (permission === 'granted') {
-      alert('تم تفعيل الإشعارات بنجاح! ستصلك تنبيهات المهام والرسائل حتى لو كان التطبيق في الخلفية.');
-    } else {
-      alert('تحتاج للموافقة على الإذن من إعدادات المتصفح لتفعيل الإشعارات.');
+      alert('تم تفعيل الإشعارات بنجاح!');
     }
   };
 
-  const [showSmartBanner, setShowSmartBanner] = useState(true);
-
-  if (profile.role !== 'parent') return <Navigate to="/" />;
-
   return (
-    <div className="pb-24 bg-summer-bg min-h-screen">
-      <Header title="إعدادات العائلة" profile={profile} />
+    <div className="pb-24 bg-brand-bg min-h-screen">
+      <Header title="إعدادات الحساب" profile={profile} />
       <div className="p-6 space-y-8">
-        <section className="bg-summer-card p-6 rounded-3xl border border-white/20 space-y-6 shadow-xl">
-          <h3 className="font-bold text-summer-text flex items-center gap-2">
-            <Settings size={18} className="text-summer-accent" />
-            إعدادات النظام
-          </h3>
+        {/* Theme Settings - For Everyone */}
+        <section className="bg-brand-card p-6 rounded-[2.5rem] border border-white/20 space-y-6 shadow-xl">
+           <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-brand-primary/10 rounded-2xl flex items-center justify-center text-brand-primary">
+                 <Wand2 size={20} />
+              </div>
+              <div>
+                <h3 className="font-black text-brand-text">ثيم اللوحة الخاص بك</h3>
+                <p className="text-[10px] text-brand-text/40 font-bold">كل عضو يقدر يختار جوّه المفضل! ✨</p>
+              </div>
+           </div>
+           
+           <ThemeSelector currentTheme={profile.theme || 'summer'} onSelect={updateTheme} />
 
-          <div className="space-y-4 pt-4 border-t border-white/10">
-            <h3 className="font-bold text-summer-text">إعدادات النقاط</h3>
-            <p className="text-xs text-summer-text/40">حدد كم يعادل كل نقطة بالريال السعودي</p>
-            <div className="flex gap-4 items-center">
-              <input 
-                type="number"
-                step="0.01"
-                value={rate}
-                onChange={(e) => setRate(Number(e.target.value))}
-                className="flex-1 bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-summer-text outline-none focus:border-summer-accent"
-              />
-              <span className="text-summer-text font-bold">ريال/نقطة</span>
-            </div>
-          </div>
+           <div className="pt-4 border-t border-white/10 space-y-4">
+              <div>
+                <h4 className="text-xs font-black text-brand-text mb-1">لون الخلفية المخصص (باكغروند)</h4>
+                <p className="text-[9px] text-brand-text/40 font-bold">تقدر تختار أي لون يريح عينك للخلفية</p>
+              </div>
+              <div className="flex items-center gap-4">
+                 <input 
+                   type="color"
+                   value={profile.customBgColor || '#caf0f8'}
+                   onChange={(e) => updateBgColor(e.target.value)}
+                   className="w-12 h-12 rounded-xl bg-white/10 border border-white/20 cursor-pointer"
+                 />
+                 <div className="flex-1">
+                    <p className="text-[10px] font-mono text-brand-text opacity-40">{profile.customBgColor || 'تلقائي حسب الثيم'}</p>
+                 </div>
+                 <button 
+                   onClick={() => updateBgColor('')}
+                   className="text-[10px] font-black text-brand-accent hover:underline"
+                 >
+                   إعادة الضبط
+                 </button>
+              </div>
+           </div>
 
-          <button 
-            onClick={saveSettings}
-            disabled={saving}
-            className="w-full summer-gradient text-white py-4 rounded-2xl font-black hover:shadow-lg transition-all disabled:opacity-50 shadow-lg"
-          >
-            {saving ? 'جاري الحفظ...' : 'حفظ الإعدادات'}
-          </button>
+           <div className="pt-4 border-t border-white/10 space-y-4">
+              <div>
+                <h4 className="text-xs font-black text-brand-text mb-1">اللون الأساسي المخصص (أكسنت)</h4>
+                <p className="text-[9px] text-brand-text/40 font-bold">تقدر تختار اللون المفضل للأزرار والأيقونات واللمسات الجمالية</p>
+              </div>
+              <div className="flex items-center gap-4">
+                 <input 
+                   type="color"
+                   value={profile.customAccentColor || '#00b4d8'}
+                   onChange={(e) => updateAccentColor(e.target.value)}
+                   className="w-12 h-12 rounded-xl bg-white/10 border border-white/20 cursor-pointer"
+                 />
+                 <div className="flex-1">
+                    <p className="text-[10px] font-mono text-brand-text opacity-40">{profile.customAccentColor || 'تلقائي حسب الثيم'}</p>
+                 </div>
+                 <button 
+                   onClick={() => updateAccentColor('')}
+                   className="text-[10px] font-black text-brand-accent hover:underline"
+                 >
+                   إعادة الضبط
+                 </button>
+              </div>
+           </div>
         </section>
 
-        <section className="bg-summer-card p-6 rounded-3xl border border-white/20 space-y-6 shadow-xl">
-          <h3 className="font-bold text-summer-text flex items-center gap-2">
-            <Bell size={18} className="text-summer-accent" />
+        {isParent && (
+          <>
+            <section className="bg-brand-card p-6 rounded-[2.5rem] border border-white/20 space-y-6 shadow-xl">
+              <h3 className="font-bold text-brand-text flex items-center gap-2">
+                <Settings size={18} className="text-brand-accent" />
+                إعدادات النظام (للأهل)
+              </h3>
+
+              <div className="space-y-4 pt-4 border-t border-white/10">
+                <h3 className="font-bold text-brand-text">إعدادات النقاط</h3>
+                <p className="text-xs text-brand-text/40">حدد كم يعادل كل نقطة بالريال السعودي</p>
+                <div className="flex gap-4 items-center">
+                  <input 
+                    type="number"
+                    step="0.01"
+                    value={rate}
+                    onChange={(e) => setRate(Number(e.target.value))}
+                    className="flex-1 bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-brand-text outline-none focus:border-brand-accent"
+                  />
+                  <span className="text-brand-text font-bold">ريال/نقطة</span>
+                </div>
+              </div>
+
+              <button 
+                onClick={saveSettings}
+                disabled={saving}
+                className="w-full brand-gradient text-white py-4 rounded-2xl font-black hover:shadow-lg transition-all disabled:opacity-50 shadow-lg"
+              >
+                {saving ? 'جاري الحفظ...' : 'حفظ الإعدادات العامة'}
+              </button>
+            </section>
+
+            <section className="bg-brand-card p-6 rounded-[2.5rem] border border-white/20 space-y-6 shadow-xl">
+               <h3 className="font-bold text-brand-text flex items-center gap-2">
+                 <Users size={18} className="text-brand-accent" />
+                 إدارة أفراد العائلة
+               </h3>
+               <FamilyMembersList currentUser={profile} />
+            </section>
+          </>
+        )}
+
+        <section className="bg-brand-card p-6 rounded-[2.5rem] border border-white/20 space-y-6 shadow-xl">
+          <h3 className="font-bold text-brand-text flex items-center gap-2">
+            <Bell size={18} className="text-brand-accent" />
             إشعارات الجوال
           </h3>
-          <p className="text-xs text-summer-text/50">تفعيل الإشعارات المنبثقة لتصلك التنبيهات حتى خارج التطبيق</p>
+          <p className="text-xs text-brand-text/50">تفعيل الإشعارات المنبثقة لتصلك التنبيهات حتى خارج التطبيق</p>
           <button 
             onClick={requestNotifications}
-            className="w-full bg-white/20 text-summer-text py-4 rounded-2xl font-black border border-white/20 hover:bg-white/30 transition-all"
+            className="w-full bg-white/10 text-brand-text py-4 rounded-2xl font-black border border-white/20 hover:bg-white/20 transition-all font-black"
           >
             تفعيل إشعارات النظام
           </button>
-        </section>
-
-        <section className="bg-summer-card p-6 rounded-3xl border border-white/20 space-y-6 shadow-xl">
-           <h3 className="font-bold text-summer-text flex items-center gap-2">
-             <Users size={18} className="text-summer-accent" />
-             إدارة أفراد العائلة
-           </h3>
-           
-           <div className="space-y-4">
-             <FamilyMembersList currentUser={profile} />
-           </div>
         </section>
       </div>
     </div>
@@ -3981,48 +4381,58 @@ const FamilyMembersList = ({ currentUser }: { currentUser: UserProfile }) => {
   );
 };
 
-const SmartAdvisor = ({ profile }: { profile: UserProfile }) => {
-  const [advice, setAdvice] = useState<string>('');
+const SilenceMomentsPage = ({ profile }: { profile: UserProfile }) => {
+  const [sessions, setSessions] = useState<SilenceSession[]>([]);
+  const [family, setFamily] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(false);
+  const [selectedChild, setSelectedChild] = useState('');
+  const [selectedPhrase, setSelectedPhrase] = useState('');
+  const [showAdd, setShowAdd] = useState(false);
+
+  const phrases = [
+    "الهدوء هو لغة الثقة بالنفس.",
+    "في الصمت نجد إجابات لكل تساؤلاتنا.",
+    "لحظة تأمل واحدة قد تغير يومك بالكامل.",
+    "السكينة هي زينة العقل.",
+    "أنا هادئ، أنا قوي، أنا مبدع.",
+    "الهدوء يمنحني القدرة على التركيز والنجاح.",
+    "كلما زاد هدوئي، زادت قدرتي على الإنجاز.",
+    "السكوت في وقت الغضب قوة.",
+    "الهدوء هو فن العيش بسلام.",
+    "التنفس العميق يعيد توازن روحي.",
+    "الهدوء قوة لا يدركها إلا من جربها.",
+    "ابتسامتي في صمتي هي عنوان رقيي."
+  ];
 
   useEffect(() => {
-    const unsub = onSnapshot(doc(db, 'appSettings', 'dailyAdvice'), (docSnap) => {
-      if (docSnap.exists()) {
-        setAdvice(docSnap.data().advice);
-      } else {
-        setAdvice('أهلاً بك في عائلة آل خليل والزاكي الذكية! ابدأ يومك بإيجابية. ✨');
-      }
+    const q = query(collection(db, 'silenceSessions'), orderBy('createdAt', 'desc'), limit(50));
+    const unsub = onSnapshot(q, (snapshot) => {
+      setSessions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as SilenceSession)));
     });
+
+    onSnapshot(collection(db, 'users'), (snapshot) => {
+      setFamily(snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile)));
+    });
+
     return unsub;
   }, []);
 
-  const getAdvice = async (e?: React.MouseEvent) => {
-    if (e) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-    
-    if (loading || profile.role !== 'parent') return;
-
+  const addSession = async () => {
+    if (!selectedChild || !selectedPhrase) return;
     setLoading(true);
     try {
-      const resp = await fetch('/api/ai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: "أعطني نصيحة عائلية واحدة قصيرة وذكية اليوم لتحفيز الأطفال أو ممارسة التربية الإيجابية. ركز على التوكن والمهام.",
-          context: { userRole: profile.role, userName: profile.displayName }
-        })
+      const child = family.find(f => f.uid === selectedChild);
+      await addDoc(collection(db, 'silenceSessions'), {
+        userId: selectedChild,
+        userName: child?.displayName || 'Unknown',
+        phrase: selectedPhrase,
+        recorderId: profile.uid,
+        recorderName: profile.displayName,
+        createdAt: serverTimestamp()
       });
-      const data = await resp.json();
-      
-      const adviceText = data.response;
-      await setDoc(doc(db, 'appSettings', 'dailyAdvice'), {
-        advice: adviceText,
-        updatedAt: serverTimestamp(),
-        updatedBy: profile.displayName,
-        type: 'daily'
-      });
+      setShowAdd(false);
+      setSelectedChild('');
+      setSelectedPhrase('');
     } catch (err) {
       console.error(err);
     } finally {
@@ -4031,38 +4441,187 @@ const SmartAdvisor = ({ profile }: { profile: UserProfile }) => {
   };
 
   return (
-    <Link to="/ai-assistant" className="block w-full">
-      <div className="bg-gradient-to-br from-amber-400 to-orange-500 p-6 rounded-[2.5rem] shadow-xl relative overflow-hidden group transition-transform active:scale-95 text-right" dir="rtl">
+      <div className="min-h-screen bg-brand-bg pb-24">
+        <Header title="لحظات هدوء وسكينة" profile={profile} />
+        
+        <div className="p-6 space-y-6 mt-4">
+          {profile.role === 'parent' && (
+            <button 
+              onClick={() => setShowAdd(true)}
+              className="w-full py-4 bg-gradient-to-r from-teal-400 to-emerald-500 text-white rounded-3xl font-black shadow-lg flex items-center justify-center gap-2 transform active:scale-95 transition-transform"
+            >
+              <PlusCircle size={20} />
+              تسجيل لحظة هدوء جديدة
+            </button>
+          )}
+
+          <div className="space-y-4">
+            <h3 className="text-lg font-black text-brand-text flex items-center gap-2">
+              <History size={20} className="text-brand-primary" />
+              سجل السكينة العائلية
+            </h3>
+
+            {sessions.length === 0 ? (
+               <div className="bg-brand-card p-12 rounded-[2.5rem] border border-dashed border-brand-primary/20 text-center space-y-4">
+                 <div className="w-16 h-16 bg-brand-primary/10 rounded-full flex items-center justify-center mx-auto text-brand-primary">
+                    <Wind size={32} />
+                 </div>
+                 <p className="text-xs font-bold text-brand-text/40">لا يوجد سجلات هدوء بعد. ابدأوا بنشر السكينة اليوم!</p>
+               </div>
+            ) : (
+              <div className="grid gap-4">
+                {sessions.map(s => (
+                  <motion.div 
+                    key={s.id}
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="bg-brand-card p-5 rounded-[2rem] border border-brand-primary/5 shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow"
+                  >
+                    <div className="absolute top-0 right-0 p-2 opacity-[0.03] group-hover:opacity-10 transition-opacity">
+                      <Wind size={40} />
+                    </div>
+                    <div className="flex justify-between items-start mb-2">
+                      <span className="text-[10px] font-black text-brand-primary bg-brand-primary/10 px-3 py-1 rounded-full">
+                        {s.userName}
+                      </span>
+                      <span className="text-[8px] text-brand-text/40 font-bold">
+                         {s.createdAt?.toDate ? s.createdAt.toDate().toLocaleDateString('ar-SA') : 'الآن'}
+                      </span>
+                    </div>
+                    <p className="text-sm font-black text-brand-text leading-relaxed">
+                      "{s.phrase}"
+                    </p>
+                    <div className="mt-2 text-[8px] text-brand-text/30 text-left w-full font-bold">
+                      بواسطة: {s.recorderName}
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Modal for adding */}
+        <AnimatePresence>
+          {showAdd && (
+            <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setShowAdd(false)}
+                className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              />
+              <motion.div 
+                initial={{ y: 100 }}
+                animate={{ y: 0 }}
+                exit={{ y: 100 }}
+                className="bg-white w-full max-w-lg rounded-t-[3rem] sm:rounded-[3rem] p-8 relative z-10 shadow-2xl"
+              >
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-xl font-black text-brand-text">لحظة هدوء 🧘‍♂️</h3>
+                  <button onClick={() => setShowAdd(false)} className="bg-gray-100 p-2 rounded-full text-gray-500 hover:bg-gray-200 transition-colors"><X size={20} /></button>
+                </div>
+
+                <div className="space-y-6">
+                  <div>
+                    <label className="text-[10px] font-black text-brand-text/40 mb-3 block uppercase tracking-widest text-right">مكافأة الهدوء لـ:</label>
+                    <div className="flex gap-2 overflow-x-auto pb-4 scrollbar-hide rtl">
+                      {family.filter(f => f.role === 'child').map(f => (
+                        <button
+                          key={f.uid}
+                          onClick={() => setSelectedChild(f.uid)}
+                          className={cn(
+                            "flex-shrink-0 px-5 py-3 rounded-2xl text-[11px] font-black transition-all border-2",
+                            selectedChild === f.uid 
+                              ? "bg-brand-primary border-brand-primary text-white shadow-lg scale-105" 
+                              : "bg-gray-50 border-transparent text-gray-400 grayscale"
+                          )}
+                        >
+                          {f.displayName}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-black text-brand-text/40 mb-3 block uppercase tracking-widest text-right">ما هي رسالة السكينة؟</label>
+                    <div className="grid gap-2 max-h-56 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-gray-200">
+                      {phrases.map((p, i) => (
+                        <button
+                          key={i}
+                          onClick={() => setSelectedPhrase(p)}
+                          className={cn(
+                            "text-right px-5 py-4 rounded-2xl text-xs font-bold transition-all border-2",
+                            selectedPhrase === p 
+                              ? "border-emerald-400 bg-emerald-50/50 text-emerald-700 shadow-sm" 
+                              : "border-gray-50 text-gray-600 hover:border-emerald-100"
+                          )}
+                        >
+                          {p}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={addSession}
+                    disabled={loading || !selectedChild || !selectedPhrase}
+                    className="w-full py-5 rounded-[2rem] bg-brand-primary text-white font-black shadow-xl disabled:opacity-50 transform active:scale-95 transition-all text-sm"
+                  >
+                    {loading ? "جاري الحفظ..." : "تأكيد اللحظة الهادئة ✨"}
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+      </div>
+  );
+};
+
+const SilenceCollector = ({ profile }: { profile: UserProfile }) => {
+  const [latestSession, setLatestSession] = useState<SilenceSession | null>(null);
+
+  useEffect(() => {
+    const q = query(collection(db, 'silenceSessions'), orderBy('createdAt', 'desc'), limit(1));
+    const unsub = onSnapshot(q, (snapshot) => {
+      if (!snapshot.empty) {
+        setLatestSession({ id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as SilenceSession);
+      }
+    });
+    return unsub;
+  }, []);
+
+  return (
+    <Link to="/silence-moments" className="block w-full">
+      <div className="bg-gradient-to-br from-teal-400 to-emerald-600 p-6 rounded-[2.5rem] shadow-xl relative overflow-hidden group transition-transform active:scale-95 text-right" dir="rtl">
          <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 blur-2xl group-hover:scale-110 transition-transform duration-700"></div>
          <div className="relative z-10 space-y-3">
             <div className="flex items-center gap-2">
                <div className="w-8 h-8 bg-white/20 rounded-xl flex items-center justify-center text-white">
-                  <Sparkles size={16} fill="currentColor" />
+                  <Wind size={16} fill="currentColor" />
                </div>
                <h3 className="text-white font-black text-sm uppercase tracking-widest">لحظات هدوء جميلة</h3>
-               {loading && <Loader2 size={12} className="text-white animate-spin mr-auto" />}
-               {!loading && <ArrowUpRight size={14} className="text-white/60 mr-auto group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />}
+               <ArrowUpRight size={14} className="text-white/60 mr-auto group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
             </div>
             
-            <div className="relative group/advice">
-              <p className="text-white/90 text-xs font-medium leading-relaxed">
-                 {advice || 'جاري استحضار النصيحة الذكية...'}
+            <div className="relative">
+              <p className="text-white/90 text-xs font-black leading-relaxed">
+                 {latestSession 
+                   ? `آخر سكينة: ${latestSession.userName} ✨` 
+                   : 'انشروا الهدوء والسكينة في المنزل اليوم!'}
               </p>
-              
-              {profile.role === 'parent' && (
-                <button 
-                  onClick={getAdvice}
-                  className="absolute -top-1 -left-1 w-6 h-6 bg-white/20 hover:bg-white/40 rounded-full flex items-center justify-center opacity-0 group-hover/advice:opacity-100 transition-opacity"
-                  title="تحديث النصيحة اليومية"
-                >
-                  <TrendingUp size={10} className="text-white" />
-                </button>
+              {latestSession && (
+                <p className="text-white/70 text-[10px] font-bold mt-1 line-clamp-1 italic">
+                  "{latestSession.phrase}"
+                </p>
               )}
             </div>
 
             <div className="flex items-center gap-2">
-              <span className="text-[9px] font-black text-amber-900 bg-white/20 px-3 py-1 rounded-full uppercase tracking-tighter">دردشة كاملة</span>
-              {profile.role === 'parent' && <span className="text-[8px] text-white/40 font-bold">يمكن للمشرف تحديث النصيحة</span>}
+              <span className="text-[9px] font-black text-emerald-900 bg-white/20 px-3 py-1 rounded-full uppercase tracking-tighter">سجل السكينة</span>
+              <span className="text-[8px] text-white/40 font-bold">سجل يدوي للمواقف الجميلة</span>
             </div>
          </div>
       </div>
@@ -4075,6 +4634,7 @@ const ShopPage = ({ profile }: { profile: UserProfile }) => {
   const [tokenProducts, setTokenProducts] = useState<StoreProduct[]>([]);
   const [activeTab, setActiveTab] = useState<'prizes' | 'tokenStore'>('prizes');
   const [showAdd, setShowAdd] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [newTitle, setNewTitle] = useState('');
   const [newCost, setNewCost] = useState(50);
   const [newImage, setNewImage] = useState('');
@@ -4121,26 +4681,80 @@ const ShopPage = ({ profile }: { profile: UserProfile }) => {
   const addPrize = async () => {
     if (!newTitle) return;
     try {
-      if (activeTab === 'prizes') {
-        await addDoc(collection(db, 'prizes'), {
-          title: newTitle,
-          cost: Number(newCost),
-          createdAt: serverTimestamp()
-        });
+      if (editingId) {
+        if (activeTab === 'prizes') {
+          await updateDoc(doc(db, 'prizes', editingId), {
+            title: newTitle,
+            cost: Number(newCost)
+          });
+        } else {
+          await updateDoc(doc(db, 'tokenStore', editingId), {
+            name: newTitle,
+            price: Number(newCost),
+            image: newImage || 'https://images.unsplash.com/photo-1549465220-1a8b9238cd48?w=200&h=200&fit=crop'
+          });
+        }
       } else {
+        if (activeTab === 'prizes') {
+          await addDoc(collection(db, 'prizes'), {
+            title: newTitle,
+            cost: Number(newCost),
+            createdAt: serverTimestamp()
+          });
+        } else {
+          await addDoc(collection(db, 'tokenStore'), {
+            name: newTitle,
+            price: Number(newCost),
+            image: newImage || 'https://images.unsplash.com/photo-1549465220-1a8b9238cd48?w=200&h=200&fit=crop',
+            stock: 99,
+            createdAt: serverTimestamp()
+          });
+        }
+      }
+      setNewTitle('');
+      setNewImage('');
+      setEditingId(null);
+      setShowAdd(false);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'store');
+    }
+  };
+
+  const openEdit = (item: Prize | StoreProduct) => {
+    setEditingId(item.id);
+    if ('title' in item) {
+      setNewTitle(item.title);
+      setNewCost(item.cost);
+      setActiveTab('prizes');
+    } else {
+      setNewTitle(item.name);
+      setNewCost(item.price);
+      setNewImage(item.image);
+      setActiveTab('tokenStore');
+    }
+    setShowAdd(true);
+  };
+
+  const seedSuggestions = async () => {
+    const suggestions = [
+      { name: 'ليلة سينما منزلية مع الفشار 🍿', price: 50, image: 'https://images.unsplash.com/photo-1517604931442-7e0c8ed2963c?w=400&auto=format&fit=crop' },
+      { name: 'اختيار الوجبة المفضلة للعشاء 🍕', price: 30, image: 'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=400&auto=format&fit=crop' },
+      { name: 'رحلة خاصة للمكان المفضل 🎡', price: 80, image: 'https://images.unsplash.com/photo-1513885535751-8b9238cd48?w=400&auto=format&fit=crop' },
+      { name: 'يوم إجازة من كافة المهام المنزلية 🛌', price: 100, image: 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=400&auto=format&fit=crop' },
+      { name: 'نشاط خارجي إضافي من اختيارك 🌳', price: 40, image: 'https://images.unsplash.com/photo-1502481851512-e9e2529bbbf9?w=400&auto=format&fit=crop' }
+    ];
+
+    try {
+      for (const item of suggestions) {
         await addDoc(collection(db, 'tokenStore'), {
-          name: newTitle,
-          price: Number(newCost),
-          image: newImage || 'https://images.unsplash.com/photo-1549465220-1a8b9238cd48?w=200&h=200&fit=crop',
+          ...item,
           stock: 99,
           createdAt: serverTimestamp()
         });
       }
-      setNewTitle('');
-      setNewImage('');
-      setShowAdd(false);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, 'store');
+      alert('تمت إضافة المقترحات بنجاح! ✨');
+    } catch (err) {
+      console.error(err);
     }
   };
 
@@ -4268,16 +4882,34 @@ const ShopPage = ({ profile }: { profile: UserProfile }) => {
         {isParent && activeTab === 'prizes' && <MonthlyRewardsManager />}
 
         {isParent && (
-          <button 
-            onClick={() => setShowAdd(!showAdd)}
-            className={cn(
-              "w-full text-white rounded-3xl py-5 font-black flex items-center justify-center gap-3 shadow-xl transition-all active:scale-95",
-              activeTab === 'prizes' ? "bg-summer-primary" : "bg-amber-600"
+          <div className="space-y-4">
+            <button 
+              onClick={() => {
+                setEditingId(null);
+                setNewTitle('');
+                setNewCost(50);
+                setNewImage('');
+                setShowAdd(!showAdd);
+              }}
+              className={cn(
+                "w-full text-white rounded-3xl py-5 font-black flex items-center justify-center gap-3 shadow-xl transition-all active:scale-95",
+                activeTab === 'prizes' ? "bg-summer-primary" : "bg-amber-600"
+              )}
+            >
+              <PlusCircle size={24} />
+              <span>{editingId ? 'تعديل' : 'إضافة'} {activeTab === 'prizes' ? 'جائزة نقاط' : 'منتج توكن'}</span>
+            </button>
+
+            {activeTab === 'tokenStore' && tokenProducts.length === 0 && (
+              <button 
+                onClick={seedSuggestions}
+                className="w-full bg-emerald-100 text-emerald-700 rounded-3xl py-4 font-bold flex items-center justify-center gap-2 border-2 border-emerald-200 border-dashed hover:bg-emerald-200 transition-all"
+              >
+                <Sparkles size={18} />
+                إضافة كافة المقترحات الذكية (5 منتجات)
+              </button>
             )}
-          >
-            <PlusCircle size={24} />
-            <span>إضافة {activeTab === 'prizes' ? 'جائزة نقاط' : 'منتج توكن'}</span>
-          </button>
+          </div>
         )}
 
         <AnimatePresence>
@@ -4359,9 +4991,14 @@ const ShopPage = ({ profile }: { profile: UserProfile }) => {
                   </div>
                   <div className="flex gap-2">
                     {isParent && (
-                      <button onClick={() => deleteProduct(prize.id, 'prizes')} className="p-2 text-red-500/40 hover:text-red-500 transition-colors">
-                        <Trash2 size={16} />
-                      </button>
+                      <div className="flex gap-2">
+                        <button onClick={() => openEdit(prize)} className="p-2 text-summer-accent/60 hover:text-summer-accent transition-colors">
+                          <Edit3 size={16} />
+                        </button>
+                        <button onClick={() => deleteProduct(prize.id, 'prizes')} className="p-2 text-red-500/40 hover:text-red-500 transition-colors">
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     )}
                     <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center text-summer-accent">
                        <Gift size={20} />
@@ -4389,12 +5026,20 @@ const ShopPage = ({ profile }: { profile: UserProfile }) => {
                       <span className="text-[10px] font-black text-summer-text">{product.price}</span>
                    </div>
                    {isParent && (
-                     <button 
-                       onClick={() => deleteProduct(product.id, 'tokenStore')} 
-                       className="absolute top-3 left-3 w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center shadow-lg active:scale-90 transition-all"
-                     >
-                       <Trash2 size={14} />
-                     </button>
+                     <div className="absolute top-3 left-3 flex flex-col gap-2">
+                       <button 
+                         onClick={() => openEdit(product)} 
+                         className="w-8 h-8 bg-white/90 backdrop-blur-md text-amber-600 rounded-full flex items-center justify-center shadow-lg active:scale-90 transition-all border border-amber-500/20"
+                       >
+                         <Edit3 size={14} />
+                       </button>
+                       <button 
+                         onClick={() => deleteProduct(product.id, 'tokenStore')} 
+                         className="w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center shadow-lg active:scale-90 transition-all"
+                       >
+                         <Trash2 size={14} />
+                       </button>
+                     </div>
                    )}
                 </div>
                 <div className="p-5 space-y-4 flex-1 flex flex-col justify-between">
@@ -4942,7 +5587,7 @@ const MotivationPage = ({ profile }: { profile: UserProfile }) => {
                           const child = family.find(f => f.uid === selectedChild);
                           setCustomMsg('جاري كتابة رسالة ملهمة...');
                           try {
-                            const resp = await fetch('/api/ai', {
+                            const data = await safeFetch('/api/ai', {
                               method: 'POST',
                               headers: { 'Content-Type': 'application/json' },
                               body: JSON.stringify({
@@ -4950,7 +5595,6 @@ const MotivationPage = ({ profile }: { profile: UserProfile }) => {
                                 systemInstruction: "أنت مساعد ذكي متخصص في إلهام الأطفال."
                               })
                             });
-                            const data = await resp.json();
                             setCustomMsg(data.response);
                           } catch {
                             setCustomMsg('أنت بطل ورايع اليوم! استمر ✨');
@@ -5086,14 +5730,28 @@ export default function App() {
     }
   }, []);
 
+  useEffect(() => {
+    if (profile?.theme) {
+      document.body.className = `theme-${profile.theme} rtl`;
+    } else {
+      document.body.className = `theme-summer rtl`;
+    }
+    
+    if (profile?.customBgColor) {
+      document.body.style.backgroundColor = profile.customBgColor;
+    } else {
+      document.body.style.backgroundColor = '';
+    }
+  }, [profile?.theme, profile?.customBgColor]);
+
   if (loading) return (
-    <div className="h-screen bg-summer-bg flex items-center justify-center p-8">
+    <div className="h-screen bg-brand-bg flex items-center justify-center p-8">
        <div className="w-16 h-1 w-full bg-white/20 rounded-full overflow-hidden">
           <motion.div 
             initial={{ x: '-100%' }}
             animate={{ x: '100%' }}
             transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}
-            className="w-full h-full summer-gradient"
+            className="w-full h-full brand-gradient"
           />
        </div>
     </div>
@@ -5103,13 +5761,28 @@ export default function App() {
 
   return (
     <Router>
-      <div className={cn("min-h-screen bg-summer-bg flex flex-col md:flex-row-reverse rtl")} dir="rtl">
+      <div 
+        className={cn("min-h-screen flex flex-col md:flex-row-reverse rtl transition-colors duration-500")} 
+        style={{ 
+          backgroundColor: profile.customBgColor || undefined,
+          '--bg': profile.customBgColor || undefined
+        } as React.CSSProperties} 
+        dir="rtl"
+      >
         <Navbar profile={profile} />
-        <main className="flex-1 overflow-x-hidden md:max-w-4xl md:mx-auto bg-summer-bg shadow-2xl border-x border-white/20">
+        <main 
+          className="flex-1 overflow-x-hidden md:max-w-4xl md:mx-auto shadow-2xl border-x border-white/20 transition-colors duration-500 bg-brand-bg"
+          style={{ 
+            backgroundColor: profile.customBgColor || undefined,
+            '--bg': profile.customBgColor || undefined,
+            '--brand-primary': profile.customAccentColor || undefined,
+            '--brand-accent': profile.customAccentColor || undefined
+          } as React.CSSProperties}
+        >
           <Routes>
             <Route path="/" element={<Dashboard profile={profile} />} />
             <Route path="/ai-assistant" element={<AIAssistant profile={profile} />} />
-            <Route path="/smart-advisor" element={<div className="p-6"><SmartAdvisor profile={profile} /></div>} />
+            <Route path="/silence-moments" element={<SilenceMomentsPage profile={profile} />} />
             <Route path="/tasks" element={<TasksPage profile={profile} />} />
             <Route path="/chat" element={<ChatPage profile={profile} />} />
             <Route path="/wallet" element={<WalletPage profile={profile} />} />

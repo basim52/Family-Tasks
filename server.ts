@@ -24,81 +24,149 @@ async function startServer() {
 
   // Gemini AI Routes
   app.post("/api/ai", async (req, res) => {
-    try {
-      const { prompt, context, systemInstruction } = req.body;
-      const key = process.env.GEMINI_API_KEY;
+    const maxRetries = 5;
+    let attempt = 0;
 
-      if (!key || key === 'MY_GEMINI_API_KEY' || key.length < 10) {
-        return res.status(400).json({ 
-          error: "Gemini API key is not valid or not set. Please provide a valid key in the application settings (Settings > Secrets).",
-          code: "API_KEY_MISSING"
-        });
-      }
+    const executeAI = async () => {
+      try {
+        const { prompt, context, systemInstruction } = req.body;
+        const key = process.env.GEMINI_API_KEY;
 
-      const { GoogleGenAI } = await import("@google/genai");
-      const ai = new GoogleGenAI({
-        apiKey: key,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build',
-          }
+        if (!key || key === 'MY_GEMINI_API_KEY' || key.length < 10) {
+          return res.status(400).json({ 
+            error: "Gemini API key is not valid or not set. Please provide a valid key in the application settings (Settings > Secrets).",
+            code: "API_KEY_MISSING"
+          });
         }
-      });
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: prompt,
-        config: {
-          systemInstruction: systemInstruction || "أنت مساعد عائلي ذكي وخبير في التربية الإيجابية وتحفيز الأطفال. تحدث بلهجة عربية ودودة ومشجعة.",
-        },
-      });
+        const { GoogleGenAI } = await import("@google/genai");
+        const ai = new GoogleGenAI({
+          apiKey: key,
+          httpOptions: {
+            headers: {
+              'User-Agent': 'aistudio-build',
+            }
+          }
+        });
 
-      res.json({ response: response.text });
-    } catch (error: any) {
-      console.error("AI Error:", error);
-      res.status(500).json({ error: error.message || "حدث خطأ في محرك الذكاء الاصطناعي" });
-    }
+        const response = await ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: prompt,
+          config: {
+            systemInstruction: systemInstruction || "أنت مساعد عائلي ذكي وخبير في التربية الإيجابية وتحفيز الأطفال. تحدث بلهجة عربية ودودة ومشجعة.",
+          },
+        });
+
+        const text = response.text;
+        res.json({ response: text });
+      } catch (error: any) {
+        const isTransient = error.message?.includes('503') || 
+                            error.message?.toLowerCase().includes('high demand') || 
+                            error.status === 503 || 
+                            error.code === 'UNAVAILABLE' ||
+                            error.code === 'DEADLINE_EXCEEDED' ||
+                            error.code === 'INTERNAL' ||
+                            error.message?.includes('fetch failed') ||
+                            error.status === 429;
+        
+        if (isTransient && attempt < maxRetries) {
+          attempt++;
+          const isRateLimit = error.status === 429;
+          console.log(`AI Transient Error (${error.status || error.code || '503'}), retrying attempt ${attempt}/${maxRetries}...`);
+          
+          // Longer backoff for rate limits
+          const baseDelay = isRateLimit ? 3000 : 1000;
+          const delay = Math.min(baseDelay * Math.pow(2, attempt) + Math.random() * 2000, 30000);
+          
+          await new Promise(resolve => setTimeout(resolve, delay));
+          return executeAI();
+        }
+
+        console.error("AI Error:", error);
+        const translatedError = isTransient 
+          ? "عذراً، محرك الذكاء الاصطناعي مشغول حالياً بسبب ضغط الطلبات. يرجى المحاولة مرة أخرى بعد قليل."
+          : (error.message || "حدث خطأ في محرك الذكاء الاصطناعي");
+        
+        const statusCode = (typeof error.status === 'number' && error.status >= 100 && error.status < 600) ? error.status : 500;
+        res.status(statusCode).json({ error: translatedError, details: error.message });
+      }
+    };
+
+    await executeAI();
   });
 
   app.post("/api/ai/chat", async (req, res) => {
-    try {
-      const { message, history } = req.body;
-      const key = process.env.GEMINI_API_KEY;
+    const maxRetries = 5;
+    let attempt = 0;
 
-      if (!key || key === 'MY_GEMINI_API_KEY' || key.length < 10) {
-        return res.status(400).json({ 
-          error: "Gemini API key is missing. AI Chat disabled.",
-          code: "API_KEY_MISSING"
-        });
-      }
+    const executeChat = async () => {
+      try {
+        const { message, history } = req.body;
+        const key = process.env.GEMINI_API_KEY;
 
-      const { GoogleGenAI } = await import("@google/genai");
-      const ai = new GoogleGenAI({
-        apiKey: key,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build',
-          }
+        if (!key || key === 'MY_GEMINI_API_KEY' || key.length < 10) {
+          return res.status(400).json({ 
+            error: "Gemini API key is missing. AI Chat disabled.",
+            code: "API_KEY_MISSING"
+          });
         }
-      });
-      
-      const chat = ai.chats.create({
-        model: "gemini-3-flash-preview",
-        config: {
-          systemInstruction: "أنت مساعد عائلي ذكي. تحدث بلهجة عربية ودودة.",
-        },
-        history: (history || []).slice(-10).map((h: any) => ({
-          role: h.role,
-          parts: h.parts.map((p: any) => ({ text: p.text }))
-        })),
-      });
 
-      const result = await chat.sendMessage({ message });
-      res.json({ response: result.text });
-    } catch (error: any) {
-      console.error("AI Chat Error:", error);
-      res.status(500).json({ error: error.message });
-    }
+        const { GoogleGenAI } = await import("@google/genai");
+        const ai = new GoogleGenAI({
+          apiKey: key,
+          httpOptions: {
+            headers: {
+              'User-Agent': 'aistudio-build',
+            }
+          }
+        });
+        
+        const chat = ai.chats.create({
+          model: "gemini-3-flash-preview",
+          config: {
+            systemInstruction: "أنت مساعد عائلي ذكي. تحدث بلهجة عربية ودودة.",
+          },
+          history: (history || []).slice(-10).map((h: any) => ({
+            role: h.role,
+            parts: [{ text: typeof h.parts[0] === 'string' ? h.parts[0] : h.parts[0].text }]
+          })),
+        });
+
+        const result = await chat.sendMessage({ message });
+        res.json({ response: result.text });
+      } catch (error: any) {
+        const isTransient = error.message?.includes('503') || 
+                            error.message?.toLowerCase().includes('high demand') || 
+                            error.status === 503 || 
+                            error.code === 'UNAVAILABLE' ||
+                            error.code === 'DEADLINE_EXCEEDED' ||
+                            error.code === 'INTERNAL' ||
+                            error.message?.includes('fetch failed') ||
+                            error.status === 429;
+        
+        if (isTransient && attempt < maxRetries) {
+          attempt++;
+          const isRateLimit = error.status === 429;
+          console.log(`AI Chat Transient Error (${error.status || error.code || '503'}), retrying attempt ${attempt}/${maxRetries}...`);
+          
+          const baseDelay = isRateLimit ? 3000 : 1000;
+          const delay = Math.min(baseDelay * Math.pow(2, attempt) + Math.random() * 2000, 30000);
+          
+          await new Promise(resolve => setTimeout(resolve, delay));
+          return executeChat();
+        }
+
+        console.error("AI Chat Error:", error);
+        const translatedError = isTransient 
+          ? "المساعد الذكي مشغول جداً حالياً، يرجى المحاولة لاحقاً."
+          : (error.message || "حدث خطأ في الدردشة الذكية");
+          
+        const statusCode = (typeof error.status === 'number' && error.status >= 100 && error.status < 600) ? error.status : 500;
+        res.status(statusCode).json({ error: translatedError, details: error.message });
+      }
+    };
+
+    await executeChat();
   });
 
   app.use("/api", (req, res) => {

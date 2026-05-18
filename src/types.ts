@@ -1,5 +1,7 @@
 export type UserRole = 'parent' | 'child';
 
+export type ThemeType = 'classic' | 'summer' | 'galaxy' | 'forest' | 'candy' | 'minimal';
+
 export interface UserProfile {
   uid: string;
   displayName: string;
@@ -10,6 +12,10 @@ export interface UserProfile {
   totalPointsEarned?: number;
   currencyBalance: number;
   tokensBalance: number; // New specialized currency
+  theme?: ThemeType;
+  customBgColor?: string;
+  customAccentColor?: string;
+  lastLuckySpinAt?: any;
   createdAt: any;
 }
 
@@ -174,4 +180,16 @@ export interface Cheque {
   issuedBy: string;
   issuedByName: string;
   serialNumber: string;
+  createdAt: any;
+}
+
+export interface SilenceSession {
+  id: string;
+  userId: string;
+  userName: string;
+  phrase: string;
+  durationMinutes?: number;
+  recorderId: string;
+  recorderName: string;
+  createdAt: any;
 }
