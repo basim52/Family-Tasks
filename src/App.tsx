@@ -1152,10 +1152,14 @@ const LuckyWheel = ({ profile }: { profile: UserProfile }) => {
 
   useEffect(() => {
     if (profile.lastLuckySpinAt) {
-      const lastSpin = profile.lastLuckySpinAt.toDate();
-      const now = new Date();
-      if (lastSpin.toDateString() === now.toDateString()) {
-        setHasSpunToday(true);
+      try {
+        const lastSpin = profile.lastLuckySpinAt.toDate();
+        const now = new Date();
+        if (lastSpin.toDateString() === now.toDateString()) {
+          setHasSpunToday(true);
+        }
+      } catch (e) {
+        console.error("Date parsing error", e);
       }
     }
   }, [profile.lastLuckySpinAt]);
@@ -1163,6 +1167,17 @@ const LuckyWheel = ({ profile }: { profile: UserProfile }) => {
   const spin = async () => {
     if (spinning || hasSpunToday) return;
 
+    // Final security check
+    const now = new Date();
+    if (profile.lastLuckySpinAt) {
+       const lastSpin = profile.lastLuckySpinAt.toDate();
+       if (lastSpin.toDateString() === now.toDateString()) {
+         setHasSpunToday(true);
+         return;
+       }
+    }
+
+    setHasSpunToday(true); // Set immediately to prevent double clicks during delay
     setSpinning(true);
     const spinCount = 5 + Math.floor(Math.random() * 5); // 5 to 10 full rotations
     const randomSegment = Math.floor(Math.random() * segments.length);
