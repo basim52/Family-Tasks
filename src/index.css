@@ -7,63 +7,57 @@
   --color-brand-bg: var(--bg);
   --color-brand-card: var(--card);
   --color-brand-text: var(--text);
+
+  /* Aliases for compatibility */
+  --color-summer-primary: var(--primary);
+  --color-summer-secondary: var(--secondary);
+  --color-summer-accent: var(--accent);
+  --color-summer-bg: var(--bg);
+  --color-summer-card: var(--card);
+  --color-summer-text: var(--text);
   
   --font-sans: "Inter", "Noto Sans Arabic", ui-sans-serif, system-ui, sans-serif;
 }
 
+.summer-gradient {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%);
+}
+
 :root {
-  /* Default: Summer */
-  --primary: #00b4d8;
-  --secondary: #ffb703;
-  --accent: #fb8500;
-  --bg: #caf0f8;
-  --card: #90e0ef;
-  --text: #023e8a;
+  /* Default: Classic Azure */
+  --primary: #0ea5e9;
+  --secondary: #38bdf8;
+  --accent: #0284c7;
+  --bg: #f8fafc;
+  --card: #ffffff;
+  --text: #0f172a;
 }
 
-.theme-summer {
-  --primary: #00b4d8;
-  --secondary: #ffb703;
-  --accent: #fb8500;
-  --bg: #caf0f8;
-  --card: #90e0ef;
-  --text: #023e8a;
+.theme-classic, .theme-summer {
+  --primary: #0ea5e9;
+  --secondary: #38bdf8;
+  --accent: #0284c7;
+  --bg: #f8fafc;
+  --card: #ffffff;
+  --text: #0f172a;
 }
 
-.theme-galaxy {
-  --primary: #7209b7;
-  --secondary: #4361ee;
-  --accent: #f72585;
-  --bg: #0b090a;
-  --card: #161a1d;
-  --text: #ffffff;
+.theme-midnight, .theme-galaxy, .theme-forest {
+  --primary: #8b5cf6;
+  --secondary: #a78bfa;
+  --accent: #7c3aed;
+  --bg: #0f172a;
+  --card: #1e293b;
+  --text: #f8fafc;
 }
 
-.theme-forest {
-  --primary: #2d6a4f;
-  --secondary: #74c69d;
-  --accent: #d8f3dc;
-  --bg: #081c15;
-  --card: #1b4332;
-  --text: #ffffff;
-}
-
-.theme-candy {
-  --primary: #ff006e;
-  --secondary: #8338ec;
-  --accent: #ffbe0b;
+.theme-boutique, .theme-candy, .theme-minimal {
+  --primary: #db2777;
+  --secondary: #f472b6;
+  --accent: #be185d;
   --bg: #fff1f2;
-  --card: #ffe4e6;
-  --text: #4c0519;
-}
-
-.theme-minimal {
-  --primary: #18181b;
-  --secondary: #71717a;
-  --accent: #27272a;
-  --bg: #ffffff;
-  --card: #f4f4f5;
-  --text: #09090b;
+  --card: #ffffff;
+  --text: #881337;
 }
 
 @layer base {

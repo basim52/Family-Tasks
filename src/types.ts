@@ -1,6 +1,6 @@
 export type UserRole = 'parent' | 'child';
 
-export type ThemeType = 'classic' | 'summer' | 'galaxy' | 'forest' | 'candy' | 'minimal';
+export type ThemeType = 'classic' | 'midnight' | 'boutique';
 
 export interface UserProfile {
   uid: string;

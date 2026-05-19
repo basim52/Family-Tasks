@@ -128,11 +128,9 @@ async function safeFetch(url: string, options: RequestInit) {
 
 const ThemeSelector = ({ currentTheme, onSelect }: { currentTheme: string, onSelect: (theme: ThemeType) => void }) => {
   const themes: { id: ThemeType, name: string, colors: string[] }[] = [
-    { id: 'summer', name: 'الصيف المرح', colors: ['#00b4d8', '#ffb703', '#fb8500'] },
-    { id: 'galaxy', name: 'فضاء النجوم', colors: ['#7209b7', '#4361ee', '#f72585'] },
-    { id: 'forest', name: 'غابة الأسرار', colors: ['#2d6a4f', '#74c69d', '#081c15'] },
-    { id: 'candy', name: 'عالم الحلوى', colors: ['#ff006e', '#8338ec', '#ffbe0b'] },
-    { id: 'minimal', name: 'بساطة عصرية', colors: ['#18181b', '#71717a', '#27272a'] },
+    { id: 'classic', name: 'أزرق كلاسيكي 💎', colors: ['#0ea5e9', '#38bdf8', '#0284c7'] },
+    { id: 'midnight', name: 'قمر الليل 🌙', colors: ['#8b5cf6', '#a78bfa', '#7c3aed'] },
+    { id: 'boutique', name: 'بوتيك الزهور 🌸', colors: ['#db2777', '#f472b6', '#be185d'] },
   ];
 
   return (
@@ -1117,12 +1115,12 @@ const LuckyWheel = ({ profile }: { profile: UserProfile }) => {
   const [spinHistory, setSpinHistory] = useState<any[]>([]);
 
   const segments = [
-    { label: "5 نقاط 🪙", color: "#facc15", value: 5, type: "points" },
-    { label: "10 نقاط 🪙", color: "#60a5fa", value: 10, type: "points" },
-    { label: "20 نقطة 🪙", color: "#f87171", value: 20, type: "points" },
-    { label: "50 نقطة 🪙", color: "#a78bfa", value: 50, type: "points" },
+    { label: "1 نقطة 🪙", color: "#facc15", value: 1, type: "points" },
+    { label: "5 نقاط 🪙", color: "#60a5fa", value: 5, type: "points" },
+    { label: "10 نقاط 🪙", color: "#f87171", value: 10, type: "points" },
+    { label: "2 توكن 💎", color: "#a78bfa", value: 2, type: "tokens" },
     { label: "1 توكن 💎", color: "#fb923c", value: 1, type: "tokens" },
-    { label: "15 نقطة 🪙", color: "#4ade80", value: 15, type: "points" },
+    { label: "5 نقاط 🪙", color: "#4ade80", value: 5, type: "points" },
   ];
 
   useEffect(() => {
@@ -2306,11 +2304,11 @@ const TreasureMapPreview = ({ profile, tasks }: { profile: UserProfile, tasks: T
     
     try {
       await updateDoc(doc(db, 'users', profile.uid), {
-        points: increment(100),
-        tokensBalance: increment(1),
+        points: increment(40),
+        tokensBalance: increment(2),
         lastTreasureClaimedCount: lastClaimed + targetCount
       });
-      alert('🎉 مبروك! لقد فتحت الكنز وحصلت على 100 نقطة و 1 توكن! ✨');
+      alert('🎉 مبروك! لقد فتحت الكنز وحصلت على 40 نقطة و 2 توكن! ✨');
     } catch (err) {
       console.error(err);
     }
@@ -2858,6 +2856,8 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
   const [showComments, setShowComments] = useState<string | null>(null);
 
   const [showArchive, setShowArchive] = useState(false);
+  const [transferingTask, setTransferingTask] = useState<Task | null>(null);
+  const [transferTarget, setTransferTarget] = useState('');
 
   useEffect(() => {
     const q = isParent 
@@ -2891,6 +2891,75 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
     }
     return t;
   }).filter(t => t.status !== 'approved');
+
+  const applyPenalty = async (task: any) => {
+    if (!isParent) return;
+    const taskReward = task.rewardAmount || task.points || 0;
+    const penaltyPoints = Math.floor(taskReward / 2);
+    if (penaltyPoints <= 0) return;
+
+    if (!confirm(`هل أنت متأكد من تطبيق خصم ${penaltyPoints} نقطة (نصف قيمة المهمة) على ${task.assignedToName}؟`)) return;
+
+    try {
+      // 1. Deduct points from user
+      const userRef = doc(db, 'users', task.assignedTo);
+      await updateDoc(userRef, {
+        points: increment(-penaltyPoints)
+      });
+
+      // 2. Update task
+      await updateDoc(doc(db, 'tasks', task.id), {
+        status: 'expired',
+        penaltyApplied: true,
+        penaltyAmount: penaltyPoints
+      });
+
+      // 3. Notify user
+      await sendNotification(task.assignedTo, 'خصم نقاط! 📉', `انتهى وقت مهمة "${task.title}" ولم تنفذ. تم خصم ${penaltyPoints} نقطة.`, 'warning');
+      
+      alert(`تم تطبيق الخصم: -${penaltyPoints} نقطة`);
+    } catch (err) {
+      console.error(err);
+      alert('فشل في تطبيق الخصم');
+    }
+  };
+
+  const transferTask = async () => {
+    if (!transferingTask || !transferTarget) return;
+    if (profile.points < 5) {
+      alert('نعتذر، يجب أن تملك 5 نقاط على الأقل لتحويل المهمة');
+      return;
+    }
+
+    try {
+      const targetUser = family.find(f => f.uid === transferTarget);
+      if (!targetUser) return;
+
+      // 1. Deduct 5 points from current user
+      await updateDoc(doc(db, 'users', profile.uid), {
+        points: increment(-5)
+      });
+
+      // 2. Update task
+      await updateDoc(doc(db, 'tasks', transferingTask.id), {
+        assignedTo: transferTarget,
+        assignedToName: targetUser.displayName,
+        rewardAmount: increment(5),
+        points: increment(5),
+        transferredFrom: profile.uid
+      });
+
+      // 3. Notify target
+      await sendNotification(transferTarget, 'مهمة محولة! 🤝', `لقد قام ${profile.displayName} بتحويل مهمة إليك: "${transferingTask.title}". المكافأة زادت 5 نقاط!`, 'task');
+
+      setTransferingTask(null);
+      setTransferTarget('');
+      alert('تم تحويل المهمة بنجاح! تم خصم 5 نقاط من رصيدك.');
+    } catch (err) {
+      console.error(err);
+      alert('حدث خطأ أثناء تحويل المهمة');
+    }
+  };
 
   const archivedTasks = tasks.filter(t => t.status === 'approved');
   const displayTasks = showArchive ? archivedTasks : activeTasks;
@@ -3168,6 +3237,61 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
         </AnimatePresence>
 
         <AnimatePresence>
+          {transferingTask && (
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-6"
+            >
+              <motion.div 
+                initial={{ scale: 0.9, y: 20 }}
+                animate={{ scale: 1, y: 0 }}
+                className="bg-brand-card w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl border border-white/20"
+              >
+                <div className="flex justify-between items-center mb-6">
+                   <div>
+                    <h3 className="text-2xl font-black text-brand-text">تحويل المهمة 🤝</h3>
+                    <p className="text-xs text-brand-text/50 font-bold">تخصم 5 نقاط منك وتضاف لزميلك</p>
+                   </div>
+                   <button onClick={() => setTransferingTask(null)} className="p-2 bg-white/10 rounded-full text-brand-text">
+                     <X size={20} />
+                   </button>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="bg-brand-primary/5 p-4 rounded-2xl border border-brand-primary/10">
+                     <p className="text-[10px] uppercase font-black tracking-widest text-brand-primary/40 mb-1">المهمة</p>
+                     <p className="font-bold text-brand-text">{transferingTask.title}</p>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-black text-brand-text/40 uppercase tracking-widest mb-2 block px-1">اختر العضو المنقذ</label>
+                    <select 
+                      className="w-full bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-brand-text outline-none focus:border-brand-accent transition-colors appearance-none"
+                      value={transferTarget}
+                      onChange={(e) => setTransferTarget(e.target.value)}
+                    >
+                      <option value="" className="bg-brand-card">من سيستلم المهمة؟</option>
+                      {family.filter(f => f.uid !== profile.uid).map(f => (
+                        <option key={f.uid} value={f.uid} className="bg-brand-card">{f.displayName}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <button 
+                    onClick={transferTask}
+                    disabled={!transferTarget}
+                    className="w-full bg-brand-accent text-white py-5 rounded-2xl font-black text-lg shadow-xl hover:bg-brand-accent/90 transition-all disabled:opacity-50 flex items-center justify-center gap-3"
+                  >
+                    <Handshake size={24} />
+                    تحويل المهمة الآن
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+
           {editingTask && (
             <motion.div 
               initial={{ height: 0, opacity: 0 }}
@@ -3275,7 +3399,7 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
                   </div>
                   <h4 className="text-xl font-bold text-summer-text mb-1 group-hover:text-summer-accent transition-colors">{task.title}</h4>
                   <p className="text-xs text-summer-text/50 line-clamp-2">بواسطة: {task.createdByName || family.find(f => f.uid === task.createdBy)?.displayName || 'الأهل'}</p>
-                  {(task.startTime || task.endTime) && (
+                  {task.status === 'expired' && (
                     <div className="mt-2 flex flex-col gap-1">
                       <div className="flex items-center gap-2 text-[10px] font-bold text-summer-accent">
                         <span className="flex items-center gap-1">
@@ -3288,12 +3412,42 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
                           {task.endTime ? new Date(task.endTime).toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' }) : '--:--'}
                         </span>
                       </div>
-                      {task.status === 'expired' && (
+                      <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1 text-[10px] font-black text-red-500 uppercase tracking-widest">
                            <Clock size={10} />
                            انتهى الوقت (تم الإلغاء)
                         </div>
-                      )}
+                        {isParent && !task.penaltyApplied && (
+                          <button 
+                            onClick={() => applyPenalty(task)}
+                            className="bg-red-500 text-white px-3 py-1.5 rounded-full text-[9px] font-black hover:bg-red-600 transition-colors shadow-lg flex items-center gap-1"
+                          >
+                             <Zap size={10} />
+                             تطبيق الخصم
+                          </button>
+                        )}
+                        {task.penaltyApplied && (
+                          <div className="bg-red-500/10 text-red-500 px-3 py-1.5 rounded-full text-[9px] font-black flex items-center gap-1 border border-red-500/20">
+                             <Trash2 size={10} />
+                             تم الخصم (-{task.penaltyAmount})
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {task.status !== 'expired' && (task.startTime || task.endTime) && (
+                    <div className="mt-2 flex flex-col gap-1">
+                      <div className="flex items-center gap-2 text-[10px] font-bold text-summer-accent">
+                        <span className="flex items-center gap-1">
+                          <Play size={10} />
+                          {task.startTime ? new Date(task.startTime).toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' }) : '--:--'}
+                        </span>
+                        <span>→</span>
+                        <span className="flex items-center gap-1">
+                          <Pause size={10} />
+                          {task.endTime ? new Date(task.endTime).toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' }) : '--:--'}
+                        </span>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -3343,12 +3497,21 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
                   </div>
                 )}
                 {!isParent && task.status === 'pending' && task.assignedTo === profile.uid && (
-                  <button 
-                    onClick={() => completeTask(task)}
-                    className="flex-1 bg-summer-primary text-white py-4 rounded-2xl font-black hover:bg-summer-primary/90 transition-all active:scale-95 shadow-lg"
-                  >
-                    تأكيد الإنجاز 🧹
-                  </button>
+                  <div className="flex gap-3 w-full">
+                    <button 
+                      onClick={() => completeTask(task)}
+                      className="flex-1 bg-summer-primary text-white py-4 rounded-2xl font-black hover:bg-summer-primary/90 transition-all active:scale-95 shadow-lg"
+                    >
+                      تأكيد الإنجاز 🧹
+                    </button>
+                    <button 
+                      onClick={() => setTransferingTask(task)}
+                      className="w-16 bg-brand-accent/10 text-brand-accent py-4 rounded-2xl font-black hover:bg-brand-accent hover:text-white transition-all active:scale-95 border border-brand-accent/20 flex items-center justify-center"
+                      title="تحويل المهمة لآخر"
+                    >
+                      <Handshake size={20} />
+                    </button>
+                  </div>
                 )}
                 {task.status === 'expired' && (
                   <div className="flex-1 bg-red-500/10 text-red-600 py-4 rounded-2xl text-center font-bold text-xs border border-red-500/20 flex items-center justify-center gap-2 grayscale">
@@ -4077,7 +4240,20 @@ const ChequeCard = ({ cheque, onClose }: { cheque: Cheque; onClose: () => void }
 const WalletPage = ({ profile }: { profile: UserProfile }) => {
   const [requests, setRequests] = useState<any[]>([]);
   const [selectedCheque, setSelectedCheque] = useState<Cheque | null>(null);
+  const [redeemError, setRedeemError] = useState<string | null>(null);
   const isParent = profile.role === 'parent';
+
+  // Monthly stats for redemption
+  const now = new Date();
+  const monthlyRedemptions = requests.filter(r => {
+    const rDate = r.requestedAt?.toDate ? r.requestedAt.toDate() : new Date();
+    return r.type === 'redeem' && 
+           r.status !== 'rejected' &&
+           rDate.getMonth() === now.getMonth() && 
+           rDate.getFullYear() === now.getFullYear();
+  });
+  const pointsRedeemedThisMonth = monthlyRedemptions.reduce((acc, curr) => acc + (curr.points || 0), 0);
+  const remainingMonthlyPoints = Math.max(0, 200 - pointsRedeemedThisMonth);
 
   useEffect(() => {
     const qTr = isParent 
@@ -4098,15 +4274,31 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
       alert('يجب أن تملك 100 نقطة على الأقل لطلب الصرف');
       return;
     }
+
+    if (pointsRedeemedThisMonth >= 200) {
+      alert('نعتذر، لقد وصلت للحد الأقصى للصرف هذا الشهر (200 نقطة)');
+      return;
+    }
+
+    // Only allow redeeming up to what's left of the 200 point limit
+    const pointsToRedeem = Math.min(profile.points, remainingMonthlyPoints);
+    const sarAmount = Math.floor(pointsToRedeem * 0.25);
+
     await addDoc(collection(db, 'transactions'), {
       userId: profile.uid,
       userName: profile.displayName,
       type: 'redeem',
-      points: profile.points,
-      currencyAmount: Math.floor(profile.points * 0.25), // Use current exchange rate
+      points: pointsToRedeem,
+      currencyAmount: sarAmount,
       status: 'pending',
       requestedAt: serverTimestamp(),
     });
+
+    if (pointsToRedeem < profile.points) {
+      alert(`سيتم صرف ${pointsToRedeem} نقطة فقط لتجاوزك الحد الشهري. المتبقي في رصيدك: ${profile.points - pointsToRedeem} نقطة.`);
+    } else {
+      alert('تم إرسال طلب الصرف بنجاح! 🚀');
+    }
   };
 
   const approveRedeem = async (request: any) => {
@@ -4114,8 +4306,8 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
       // 1. Mark status
       await updateDoc(doc(db, 'transactions', request.id), { status: 'approved', processedAt: serverTimestamp() });
       
-      // 2. Clear points in profile
-      await updateDoc(doc(db, 'users', request.userId), { points: 0 });
+      // 2. Subtract points from profile
+      await updateDoc(doc(db, 'users', request.userId), { points: increment(-request.points) });
       
       // 3. Create Cheque
       const serial = `CHQ-${Math.floor(Math.random() * 900000 + 100000)}`;
@@ -4163,6 +4355,33 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
           <Bell className="text-summer-accent shrink-0" size={20} />
           <p className="text-[11px] font-bold text-summer-text">يتم استبدال النقاط وتحويل المبالغ في تاريخ 10 من كل شهر ميلادي 🗓️</p>
         </div>
+
+        {!isParent && (
+          <div className="bg-summer-accent/5 border border-summer-accent/10 p-5 rounded-[2rem] space-y-4">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <Target size={18} className="text-summer-accent" />
+                <span className="text-xs font-black text-summer-text">تم تحويله هذا الشهر</span>
+              </div>
+              <span className="text-[10px] font-black text-summer-accent bg-summer-accent/10 px-3 py-1 rounded-full">
+                {pointsRedeemedThisMonth} / 200 نقطة
+              </span>
+            </div>
+            
+            <div className="h-2.5 w-full bg-white/30 rounded-full overflow-hidden border border-white/40">
+              <motion.div 
+                initial={{ width: 0 }}
+                animate={{ width: `${Math.min(100, (pointsRedeemedThisMonth / 200) * 100)}%` }}
+                className="h-full summer-gradient"
+              />
+            </div>
+
+            <div className="flex justify-between items-center text-[9px] font-bold text-summer-text/40">
+               <span>المتبقي للصرف هذا الشهر: {remainingMonthlyPoints} نقطة</span>
+               <span>(50 ريال كحد أقصى)</span>
+            </div>
+          </div>
+        )}
 
         {!isParent && profile.points >= 100 && (
           <button 
@@ -4341,7 +4560,7 @@ const SettingsPage = ({ profile }: { profile: UserProfile }) => {
               <div>
                 <h4 className="text-xs font-black text-brand-text mb-3">ثيم العائلة الموحد</h4>
                 <ThemeSelector 
-                  currentTheme={globalAppearance?.theme || 'summer'} 
+                  currentTheme={globalAppearance?.theme || 'classic'} 
                   onSelect={(t) => updateTheme(t, true)} 
                 />
               </div>
@@ -4394,7 +4613,7 @@ const SettingsPage = ({ profile }: { profile: UserProfile }) => {
               </div>
            </div>
            
-           <ThemeSelector currentTheme={profile.theme || 'summer'} onSelect={updateTheme} />
+           <ThemeSelector currentTheme={profile.theme || 'classic'} onSelect={updateTheme} />
 
            <div className="pt-4 border-t border-white/10 space-y-4">
               <div>
@@ -6042,7 +6261,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const theme = profile?.theme || globalAppearance?.theme || 'summer';
+    const theme = profile?.theme || globalAppearance?.theme || 'classic';
     const bgColor = profile?.customBgColor || globalAppearance?.customBgColor || '';
     
     document.body.className = `theme-${theme} rtl`;
