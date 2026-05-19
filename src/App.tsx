@@ -2862,7 +2862,7 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
   useEffect(() => {
     const q = isParent 
       ? query(collection(db, 'tasks'), orderBy('createdAt', 'desc'))
-      : query(collection(db, 'tasks'), where('assignedTo', '==', profile.uid), orderBy('createdAt', 'desc'));
+      : query(collection(db, 'tasks'), where('assignedTo', 'in', [profile.uid, '']), orderBy('createdAt', 'desc'));
     
     const unsubscribeTasks = onSnapshot(q, (snapshot) => {
       setTasks(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Task)));
@@ -2890,7 +2890,7 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
       }
     }
     return t;
-  }).filter(t => t.status !== 'approved');
+  }).filter(t => t.status !== 'approved' && t.status !== 'expired');
 
   const applyPenalty = async (task: any) => {
     if (!isParent) return;
@@ -2915,9 +2915,9 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
       });
 
       // 3. Notify user
-      await sendNotification(task.assignedTo, 'خصم نقاط! 📉', `انتهى وقت مهمة "${task.title}" ولم تنفذ. تم خصم ${penaltyPoints} نقطة.`, 'warning');
+      await sendNotification(task.assignedTo, 'خصم نقاط! 📉', `انتهى وقت مهمة "${task.title}" ولم تنفذ. تم خصم ${penaltyPoints} نقطة من رصيدك.`, 'warning');
       
-      alert(`تم تطبيق الخصم: -${penaltyPoints} نقطة`);
+      alert(`تم تطبيق الخصم بنجاح: -${penaltyPoints} نقطة.`);
     } catch (err) {
       console.error(err);
       alert('فشل في تطبيق الخصم');
@@ -2961,11 +2961,14 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
     }
   };
 
-  const archivedTasks = tasks.filter(t => t.status === 'approved');
+  const archivedTasks = tasks.filter(t => t.status === 'approved' || t.status === 'expired');
   const displayTasks = showArchive ? archivedTasks : activeTasks;
 
   const addTask = async () => {
-    if (!newTitle) return;
+    if (!newTitle.trim()) {
+      alert('الرجاء إدخال اسم المهمة أولاً');
+      return;
+    }
     try {
       const assignedUser = family.find(f => f.uid === newAssigned);
       await addDoc(collection(db, 'tasks'), {
@@ -2985,7 +2988,7 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
       });
 
       // Notify Target Member
-      if (newAssigned) {
+      if (newAssigned && newAssigned !== profile.uid) {
         const title = isParent ? 'مهمة جديدة! 🚀' : 'طلب مساعدة/مهمة! 🤝';
         const body = `لقد تم تكليفك بمهمة من ${profile.displayName}: ${newTitle} والمكافأة ${newRewardAmount} ${newRewardType === 'points' ? 'نقطة' : 'توكن'} ✨`;
         await sendNotification(newAssigned, title, body, 'task');
@@ -2996,8 +2999,10 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
       setNewEndTime('');
       setNewAssigned('');
       setShowAdd(false);
+      alert('تمت إضافة المهمة بنجاح! 🎉');
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'tasks');
+      alert('فشل في حفظ المهمة، يرجى المحاولة لاحقاً');
     }
   };
 
@@ -3191,9 +3196,11 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
                   value={newAssigned}
                   onChange={(e) => setNewAssigned(e.target.value)}
                 >
-                  <option value="" className="bg-brand-card text-brand-text">تعيين إلى...</option>
-                  {family.filter(f => f.uid !== profile.uid).map(f => (
-                    <option key={f.uid} value={f.uid} className="bg-brand-card text-brand-text">{f.displayName} ({f.role === 'parent' ? 'أب/أم' : 'عضو'})</option>
+                  <option value="" className="bg-brand-card text-brand-text">الجميع (أو لم يحدد بعد)</option>
+                  {family.map(f => (
+                    <option key={f.uid} value={f.uid} className="bg-brand-card text-brand-text">
+                      {f.displayName} {f.uid === profile.uid ? '(أنا)' : `(${f.role === 'parent' ? 'أب/أم' : 'عضو'})`}
+                    </option>
                   ))}
                 </select>
                 
