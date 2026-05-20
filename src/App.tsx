@@ -1454,10 +1454,31 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
 
   const completeTask = async (task: Task) => {
     try {
-      await updateDoc(doc(db, 'tasks', task.id), { 
-        status: 'completed', 
-        completedAt: serverTimestamp() 
-      });
+      if (task.assignedTo === '') {
+        // Task for everyone ("الجميع"). Clone it and assign it to the current child child.
+        await addDoc(collection(db, 'tasks'), {
+          title: task.title,
+          description: task.description || '',
+          points: task.points || 0,
+          rewardType: task.rewardType || 'points',
+          rewardAmount: task.rewardAmount || task.points || 0,
+          status: 'completed',
+          assignedTo: profile.uid,
+          assignedToName: profile.displayName,
+          startTime: task.startTime || null,
+          endTime: task.endTime || null,
+          createdBy: task.createdBy || '',
+          createdByName: task.createdByName || '',
+          createdAt: task.createdAt || serverTimestamp(),
+          completedAt: serverTimestamp()
+        });
+      } else {
+        // Normal individual task
+        await updateDoc(doc(db, 'tasks', task.id), { 
+          status: 'completed', 
+          completedAt: serverTimestamp() 
+        });
+      }
 
       const parentUids = family.filter(f => f.role === 'parent').map(f => f.uid);
       for (const parentUid of parentUids) {
@@ -1743,7 +1764,7 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
                         </button>
                       </div>
                     )}
-                    {!isParent && task.status === 'pending' && task.assignedTo === profile.uid && (
+                    {!isParent && task.status === 'pending' && (task.assignedTo === profile.uid || task.assignedTo === '') && (
                       <div className="flex gap-2 w-full">
                         <button 
                           onClick={(e) => { e.preventDefault(); completeTask(task); }}
@@ -3262,10 +3283,31 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
 
   const completeTask = async (task: Task) => {
     try {
-      await updateDoc(doc(db, 'tasks', task.id), { 
-        status: 'completed', 
-        completedAt: serverTimestamp() 
-      });
+      if (task.assignedTo === '') {
+        // Task for everyone ("الجميع"). Clone it and assign it to the current child.
+        await addDoc(collection(db, 'tasks'), {
+          title: task.title,
+          description: task.description || '',
+          points: task.points || 0,
+          rewardType: task.rewardType || 'points',
+          rewardAmount: task.rewardAmount || task.points || 0,
+          status: 'completed',
+          assignedTo: profile.uid,
+          assignedToName: profile.displayName,
+          startTime: task.startTime || null,
+          endTime: task.endTime || null,
+          createdBy: task.createdBy || '',
+          createdByName: task.createdByName || '',
+          createdAt: task.createdAt || serverTimestamp(),
+          completedAt: serverTimestamp()
+        });
+      } else {
+        // Normal individual task
+        await updateDoc(doc(db, 'tasks', task.id), { 
+          status: 'completed', 
+          completedAt: serverTimestamp() 
+        });
+      }
 
       // Notify Parents
       const parentUids = family.filter(f => f.role === 'parent').map(f => f.uid);
@@ -3277,6 +3319,7 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
           'task_completed'
         );
       }
+      alert('تم تأكيد إنجاز المهمة وإرسالها للأهل للمراجعة! 👍');
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `tasks/${task.id}`);
     }
@@ -3705,7 +3748,7 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
                     </button>
                   </div>
                 )}
-                {!isParent && task.status === 'pending' && task.assignedTo === profile.uid && (
+                {!isParent && task.status === 'pending' && (task.assignedTo === profile.uid || task.assignedTo === '') && (
                   <div className="flex gap-3 w-full">
                     <button 
                       onClick={() => completeTask(task)}
