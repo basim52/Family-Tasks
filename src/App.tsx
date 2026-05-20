@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { toPng } from 'html-to-image';
 import { 
   Home, 
+  Gamepad2,
   CheckSquare, 
   MessageCircle, 
   Wallet as WalletIcon, 
@@ -75,6 +76,7 @@ import { Landing } from './pages/Landing';
 import { WalletCard } from './components/wallet/WalletCard';
 import { TaskImageGenerator } from './components/TaskImageGenerator';
 import { FamilyPerformanceChart } from './components/FamilyPerformanceChart';
+import { FamilyGame } from './components/FamilyGame';
 import { Play, Pause, Loader2 } from 'lucide-react';
 import { 
   collection, 
@@ -238,6 +240,7 @@ const Navbar = ({ profile }: { profile: UserProfile | null }) => {
   const navItems = [
     { path: '/', icon: Home, label: 'لوحة التحكم' },
     { path: '/tasks', icon: CheckSquare, label: 'المهام' },
+    { path: '/family-game', icon: Gamepad2, label: 'الألعاب' },
     { path: '/chat', icon: MessageCircle, label: 'الدردشة' },
     { path: '/wallet', icon: WalletIcon, label: 'المحفظة' },
   ];
@@ -2157,6 +2160,32 @@ const FamilyInnovationCenter = ({ profile, family, tasks }: { profile: UserProfi
 
       {/* 3. Interactive Treasure Map (خريطة الكنز التفاعلية) */}
       <TreasureMapPreview profile={profile} tasks={tasks} />
+
+      {/* interactive board game banner */}
+      <div className="bg-gradient-to-r from-amber-500/20 via-orange-500/15 to-indigo-500/20 p-6 rounded-[2.5rem] border border-amber-500/35 text-right space-y-4 relative overflow-hidden shadow-xl" dir="rtl">
+        <div className="absolute -top-12 -left-12 w-32 h-32 bg-amber-500/10 rounded-full blur-2xl pointer-events-none animate-pulse" />
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 relative z-10">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 bg-amber-500/20 rounded-2xl flex items-center justify-center text-amber-300">
+              <Gamepad2 size={24} className="animate-bounce" />
+            </div>
+            <div>
+              <h3 className="font-black text-white text-base">ساحة ألعاب الأبطال المنعشة 🏆🏝️</h3>
+              <p className="text-[10px] text-summer-text/50 font-bold">تواصل عائلي تفاعلي حقيقي بالأسئلة والتحديات المسلية</p>
+            </div>
+          </div>
+          
+          <Link 
+            to="/family-game"
+            className="px-6 py-3.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-2xl text-xs transition-all flex items-center gap-1.5 shadow-lg active:scale-95 text-center self-stretch sm:self-auto"
+          >
+            ادخل لساحة اللعب 🚀
+          </Link>
+        </div>
+        <p className="text-xs text-summer-text/80 leading-relaxed font-bold">
+          هل أنتم مستعدون لتحدي الجزر العائلية الممتع؟ لعبة تفاعلية مبتكرة للاعبين من 2 إلى 5 أبطال! رمي النرد، الإجابة عن الألغاز العبقرية، وتنفيذ التحديات الحركية لربح لقب البطل و50 نقطة حقيقية بالخزنة!
+        </p>
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* 4. AI Negotiator (المفاوض الذكي) */}
@@ -6609,6 +6638,43 @@ const MotivationPage = ({ profile }: { profile: UserProfile }) => {
   );
 };
 
+const FamilyGamePage = ({ profile }: { profile: UserProfile }) => {
+  const [family, setFamily] = useState<UserProfile[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'users'), (snapshot) => {
+      setFamily(snapshot.docs.map(doc => doc.data() as UserProfile));
+      setLoading(false);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'users');
+      setLoading(false);
+    });
+    return () => unsub();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-brand-bg relative overflow-hidden text-center p-6">
+        <div className="space-y-4">
+          <Loader2 className="w-10 h-10 animate-spin text-amber-400 mx-auto" />
+          <h4 className="text-sm font-black text-summer-text">جاري تهيئة ساحة الألعاب العائلية الاستثنائية... 🎮🏝️</h4>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="py-6 px-4 md:px-6 space-y-6 pb-24 bg-brand-bg min-h-screen">
+      <Header 
+        title="تحدي الأبطال المنعش" 
+        profile={profile} 
+      />
+      <FamilyGame profile={profile} family={family} />
+    </div>
+  );
+};
+
 export default function App() {
   const { user, profile, loading } = useAuth();
   const [globalAppearance, setGlobalAppearance] = useState<any>(null);
@@ -6691,6 +6757,7 @@ export default function App() {
             <Route path="/behavior" element={<BehaviorRatingPage profile={profile} />} />
             <Route path="/motivation" element={<MotivationPage profile={profile} />} />
             <Route path="/settings" element={<SettingsPage profile={profile} />} />
+            <Route path="/family-game" element={<FamilyGamePage profile={profile} />} />
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
         </main>
