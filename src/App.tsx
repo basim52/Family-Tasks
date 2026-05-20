@@ -74,6 +74,7 @@ import { useAuth } from './hooks/useAuth';
 import { Landing } from './pages/Landing';
 import { WalletCard } from './components/wallet/WalletCard';
 import { TaskImageGenerator } from './components/TaskImageGenerator';
+import { FamilyPerformanceChart } from './components/FamilyPerformanceChart';
 import { Play, Pause, Loader2 } from 'lucide-react';
 import { 
   collection, 
@@ -1398,6 +1399,96 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
     };
   }, [profile.uid, isParent]);
 
+  const approveTask = async (task: Task) => {
+    if (!isParent) return;
+    try {
+      await updateDoc(doc(db, 'tasks', task.id), { 
+        status: 'approved',
+        approvedAt: serverTimestamp()
+      });
+      
+      const userRef = doc(db, 'users', task.assignedTo);
+      const userSnap = await getDoc(userRef);
+      if (userSnap.exists()) {
+        const userData = userSnap.data();
+        const rewardType = task.rewardType || 'points';
+        const rewardAmount = task.rewardAmount || task.points || 0;
+
+        if (rewardType === 'points') {
+          const currentPoints = userData.points || 0;
+          const totalPoints = userData.totalPointsEarned || 0;
+          await updateDoc(userRef, { 
+            points: currentPoints + rewardAmount,
+            totalPointsEarned: totalPoints + rewardAmount
+          });
+        } else {
+          const currentTokens = userData.tokensBalance || 0;
+          await updateDoc(userRef, { 
+            tokensBalance: currentTokens + rewardAmount
+          });
+        }
+        
+        await sendNotification(task.assignedTo, 'مبروك! 🏆', `تمت الموافقة على مهمة "${task.title}" وحصلت على ${rewardAmount} ${rewardType === 'points' ? 'نقطة' : 'توكن'}!`, 'success');
+        alert('تمت الموافقة على المهمة بنجاح! 🎉');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('حدث خطأ أثناء الموافقة على المهمة');
+    }
+  };
+
+  const rejectTask = async (task: Task) => {
+    if (!isParent) return;
+    try {
+      await updateDoc(doc(db, 'tasks', task.id), { 
+        status: 'pending',
+        completedAt: null 
+      });
+      await sendNotification(task.assignedTo, 'طلب مراجعة 📝', `هناك ملاحظات على مهمة "${task.title}"، يرجى مراجعتها`, 'warning');
+      alert('تم إرجاع المهمة للمراجعة بنجاح.');
+    } catch (err) {
+      console.error(err);
+      alert('حدث خطأ أثناء رفض المهمة');
+    }
+  };
+
+  const completeTask = async (task: Task) => {
+    try {
+      await updateDoc(doc(db, 'tasks', task.id), { 
+        status: 'completed', 
+        completedAt: serverTimestamp() 
+      });
+
+      const parentUids = family.filter(f => f.role === 'parent').map(f => f.uid);
+      for (const parentUid of parentUids) {
+        await sendNotification(
+          parentUid, 
+          'إنجاز جديد! 🎉', 
+          `لقد أتم ${profile.displayName} مهمة: ${task.title}`, 
+          'task_completed'
+        );
+      }
+      alert('تم تأكيد إنجاز المهمة وإرسالها للأهل للمراجعة! 👍');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `tasks/${task.id}`);
+    }
+  };
+
+  const cancelTask = async (task: Task) => {
+    if (!isParent) return;
+    if (!confirm(`هل أنت متأكد من إلغاء مهمة "${task.title}" وأرشفتها؟`)) return;
+    try {
+      await updateDoc(doc(db, 'tasks', task.id), { 
+        status: 'expired',
+        cancelledAt: serverTimestamp()
+      });
+      await sendNotification(task.assignedTo, 'تم إلغاء المهمة ❌', `تم إلغاء مهمة "${task.title}" وأرشفتها بواسطة الأهل.`, 'warning');
+      alert('تم إلغاء المهمة بنجاح وأرشفتها! 📁');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `tasks/${task.id}`);
+    }
+  };
+
   const requestNotifications = async () => {
     if (!('Notification' in window)) {
       alert('متصفحك لا يدعم الإشعارات.');
@@ -1430,6 +1521,9 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
 
         {/* Competition Record */}
         <CompetitionRecord family={family} tasks={tasks} />
+
+        {/* Family Performance Analytics Chart */}
+        <FamilyPerformanceChart family={family} tasks={tasks} />
 
         {/* Family Innovation Center (New Requested Features) */}
         <FamilyInnovationCenter profile={profile} family={family} tasks={tasks} />
@@ -1618,6 +1712,54 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
                       </span>
                     </div>
                   )}
+
+                  {/* Task Action Buttons on Dashboard */}
+                  <div className="mt-4 border-t border-white/10 pt-3">
+                    {task.status === 'completed' && isParent && (
+                      <div className="flex gap-2 w-full">
+                        <button 
+                          onClick={(e) => { e.preventDefault(); approveTask(task); }}
+                          className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white py-2 rounded-xl text-xs font-black transition-all shadow-md active:scale-95"
+                        >
+                          موافقة ومنح {task.points} ن
+                        </button>
+                        <button 
+                          onClick={(e) => { e.preventDefault(); rejectTask(task); }}
+                          className="bg-red-500/20 hover:bg-red-500 hover:text-white text-red-100 px-3 py-2 rounded-xl text-xs font-black transition-all border border-white/10 active:scale-95"
+                          title="إرجاع للمراجعة"
+                        >
+                          مراجعة
+                        </button>
+                      </div>
+                    )}
+                    {task.status === 'pending' && isParent && (
+                      <div className="flex gap-2 w-full">
+                        <button 
+                          onClick={(e) => { e.preventDefault(); cancelTask(task); }}
+                          className="flex-1 bg-red-500/80 hover:bg-red-600 text-white py-2 rounded-xl text-xs font-black transition-all shadow-md flex items-center justify-center gap-1 active:scale-95"
+                        >
+                          <Trash2 size={12} />
+                          إلغاء وأرشفة المهمة
+                        </button>
+                      </div>
+                    )}
+                    {!isParent && task.status === 'pending' && task.assignedTo === profile.uid && (
+                      <div className="flex gap-2 w-full">
+                        <button 
+                          onClick={(e) => { e.preventDefault(); completeTask(task); }}
+                          className="flex-1 bg-white hover:bg-white/95 text-summer-primary py-2.5 rounded-xl text-xs font-black transition-all shadow-md flex items-center justify-center gap-1 active:scale-95"
+                        >
+                          إتمام المهمة 🧹
+                        </button>
+                      </div>
+                    )}
+                    {task.status === 'completed' && !isParent && (
+                      <div className="w-full text-center py-2 bg-white/10 rounded-xl text-[10px] font-black text-white/90 flex items-center justify-center gap-1.5 border border-white/10">
+                        <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
+                        بانتظار مراجعة الأهل...
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div className="flex items-center justify-between border-t border-white/20 pt-4">
                   <div className="flex items-center gap-2">
@@ -3140,6 +3282,21 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
     }
   };
 
+  const cancelTask = async (task: Task) => {
+    if (!isParent) return;
+    if (!confirm(`هل أنت متأكد من إلغاء مهمة "${task.title}" وأرشفتها؟`)) return;
+    try {
+      await updateDoc(doc(db, 'tasks', task.id), { 
+        status: 'expired',
+        cancelledAt: serverTimestamp()
+      });
+      await sendNotification(task.assignedTo, 'تم إلغاء المهمة ❌', `تم إلغاء مهمة "${task.title}" وأرشفتها بواسطة الأهل.`, 'warning');
+      alert('تم إلغاء المهمة بنجاح وأرشفتها! 📁');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `tasks/${task.id}`);
+    }
+  };
+
   return (
     <div className="pb-24 bg-summer-bg min-h-screen">
       <Header title="لوحة المهام النشطة" profile={profile} />
@@ -3534,6 +3691,17 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
                       title="طلب تعديل"
                     >
                       <X size={20} className="mx-auto" />
+                    </button>
+                  </div>
+                )}
+                {task.status === 'pending' && isParent && (
+                  <div className="flex gap-3 w-full">
+                    <button 
+                      onClick={() => cancelTask(task)}
+                      className="flex-1 bg-red-600/10 text-red-500 hover:bg-red-500 hover:text-white border border-red-500/20 py-4 rounded-2xl font-black transition-all active:scale-95 flex items-center justify-center gap-2"
+                    >
+                      <Trash2 size={16} />
+                      إلغاء وأرشفة المهمة
                     </button>
                   </div>
                 )}
