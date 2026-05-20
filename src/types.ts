@@ -48,6 +48,8 @@ export interface Task {
   createdAt: any;
   completedAt?: any;
   approvedAt?: any;
+  recurrence?: 'none' | 'daily' | 'weekly' | 'monthly';
+  parentTaskId?: string;
 }
 
 export interface TaskComment {

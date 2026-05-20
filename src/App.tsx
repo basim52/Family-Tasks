@@ -127,6 +127,73 @@ async function safeFetch(url: string, options: RequestInit) {
   }
 }
 
+const calculateNextRecurrenceDates = (recurrence: 'none' | 'daily' | 'weekly' | 'monthly', startTime?: any, endTime?: any) => {
+  let nextStartTime: any = null;
+  let nextEndTime: any = null;
+
+  if (startTime) {
+    const start = new Date(startTime);
+    if (!isNaN(start.getTime())) {
+      if (recurrence === 'daily') start.setDate(start.getDate() + 1);
+      else if (recurrence === 'weekly') start.setDate(start.getDate() + 7);
+      else if (recurrence === 'monthly') start.setMonth(start.getMonth() + 1);
+      
+      const year = start.getFullYear();
+      const month = String(start.getMonth() + 1).padStart(2, '0');
+      const day = String(start.getDate()).padStart(2, '0');
+      const hours = String(start.getHours()).padStart(2, '0');
+      const minutes = String(start.getMinutes()).padStart(2, '0');
+      nextStartTime = `${year}-${month}-${day}T${hours}:${minutes}`;
+    }
+  }
+
+  if (endTime) {
+    const end = new Date(endTime);
+    if (!isNaN(end.getTime())) {
+      if (recurrence === 'daily') end.setDate(end.getDate() + 1);
+      else if (recurrence === 'weekly') end.setDate(end.getDate() + 7);
+      else if (recurrence === 'monthly') end.setMonth(end.getMonth() + 1);
+      
+      const year = end.getFullYear();
+      const month = String(end.getMonth() + 1).padStart(2, '0');
+      const day = String(end.getDate()).padStart(2, '0');
+      const hours = String(end.getHours()).padStart(2, '0');
+      const minutes = String(end.getMinutes()).padStart(2, '0');
+      nextEndTime = `${year}-${month}-${day}T${hours}:${minutes}`;
+    }
+  }
+
+  return { nextStartTime, nextEndTime };
+};
+
+const handleRecurrenceSpawning = async (db: any, task: Task) => {
+  if (task.recurrence && task.recurrence !== 'none') {
+    const { nextStartTime, nextEndTime } = calculateNextRecurrenceDates(
+      task.recurrence, 
+      task.startTime, 
+      task.endTime
+    );
+    
+    await addDoc(collection(db, 'tasks'), {
+      title: task.title,
+      description: task.description || '',
+      points: task.points || 0,
+      rewardType: task.rewardType || 'points',
+      rewardAmount: task.rewardAmount || task.points || 0,
+      status: 'pending',
+      assignedTo: task.assignedTo || '',
+      assignedToName: task.assignedToName || 'الجميع',
+      startTime: nextStartTime || null,
+      endTime: nextEndTime || null,
+      createdBy: task.createdBy || '',
+      createdByName: task.createdByName || '',
+      recurrence: task.recurrence,
+      parentTaskId: task.id,
+      createdAt: serverTimestamp(),
+    });
+  }
+};
+
 const ThemeSelector = ({ currentTheme, onSelect }: { currentTheme: string, onSelect: (theme: ThemeType) => void }) => {
   const themes: { id: ThemeType, name: string, colors: string[] }[] = [
     { id: 'classic', name: 'أزرق كلاسيكي 💎', colors: ['#0ea5e9', '#38bdf8', '#0284c7'] },
@@ -1406,6 +1473,9 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
         status: 'approved',
         approvedAt: serverTimestamp()
       });
+      
+      // Handle recurring tasks spawning the next occurrence
+      await handleRecurrenceSpawning(db, task);
       
       const userRef = doc(db, 'users', task.assignedTo);
       const userSnap = await getDoc(userRef);
@@ -3025,6 +3095,8 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
   const [editAssigned, setEditAssigned] = useState('');
   const [editStartTime, setEditStartTime] = useState('');
   const [editEndTime, setEditEndTime] = useState('');
+  const [newRecurrence, setNewRecurrence] = useState<'none' | 'daily' | 'weekly' | 'monthly'>('none');
+  const [editRecurrence, setEditRecurrence] = useState<'none' | 'daily' | 'weekly' | 'monthly'>('none');
   const [showComments, setShowComments] = useState<string | null>(null);
 
   const [showArchive, setShowArchive] = useState(false);
@@ -3181,6 +3253,7 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
         endTime: newEndTime || null,
         createdBy: profile.uid,
         createdByName: profile.displayName,
+        recurrence: newRecurrence,
         createdAt: serverTimestamp(),
       });
 
@@ -3195,6 +3268,7 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
       setNewStartTime('');
       setNewEndTime('');
       setNewAssigned('');
+      setNewRecurrence('none');
       setShowAdd(false);
       alert('تمت إضافة المهمة بنجاح! 🎉');
     } catch (error) {
@@ -3217,6 +3291,7 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
       assignedToName: assignedUser?.displayName || 'الجميع',
       startTime: editStartTime || null,
       endTime: editEndTime || null,
+      recurrence: editRecurrence,
     });
 
     // Notify Child if reassigned
@@ -3235,6 +3310,7 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
     setEditAssigned(task.assignedTo);
     setEditStartTime(task.startTime || '');
     setEditEndTime(task.endTime || '');
+    setEditRecurrence(task.recurrence || 'none');
   };
 
   const approveTask = async (task: Task) => {
@@ -3244,6 +3320,9 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
       status: 'approved',
       approvedAt: serverTimestamp()
     });
+    
+    // Handle recurring tasks spawning the next occurrence
+    await handleRecurrenceSpawning(db, task);
     
     // 2. Award Reward to Child
     const userRef = doc(db, 'users', task.assignedTo);
@@ -3458,6 +3537,20 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
                     />
                   </div>
                 </div>
+
+                <div>
+                  <label className="text-[10px] font-black text-brand-text/40 uppercase tracking-widest mb-1 block px-1">تكرار المهمة 🔁</label>
+                  <select 
+                    className="w-full bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-brand-text outline-none focus:border-brand-accent appearance-none placeholder:text-brand-text/30 justify-between items-center"
+                    value={newRecurrence}
+                    onChange={(e) => setNewRecurrence(e.target.value as any)}
+                  >
+                    <option value="none" className="bg-brand-card text-brand-text">مهمة لمرة واحدة فقط (غير متكررة)</option>
+                    <option value="daily" className="bg-brand-card text-brand-text">يومياً (تكرار تلقائي بعد الاعتماد)</option>
+                    <option value="weekly" className="bg-brand-card text-brand-text">أسبوعياً (تكرار تلقائي بعد الاعتماد)</option>
+                    <option value="monthly" className="bg-brand-card text-brand-text">شهرياً (تكرار تلقائي بعد الاعتماد)</option>
+                  </select>
+                </div>
                 
                 <div className="pt-2">
                   <SuggestionsLibrary onSelectTask={(task) => {
@@ -3613,6 +3706,20 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
                     />
                   </div>
                 </div>
+
+                <div>
+                  <label className="text-[10px] font-black text-summer-text/40 uppercase tracking-widest mb-1 block px-1">تكرار المهمة 🔁</label>
+                  <select 
+                    className="w-full bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-summer-text outline-none focus:border-summer-accent appearance-none placeholder:text-summer-text/30"
+                    value={editRecurrence}
+                    onChange={(e) => setEditRecurrence(e.target.value as any)}
+                  >
+                    <option value="none" className="bg-summer-card text-summer-text">مهمة لمرة واحدة فقط (غير متكررة)</option>
+                    <option value="daily" className="bg-summer-card text-summer-text">يومياً (تكرار تلقائي بعد الاعتماد)</option>
+                    <option value="weekly" className="bg-summer-card text-summer-text">أسبوعياً (تكرار تلقائي بعد الاعتماد)</option>
+                    <option value="monthly" className="bg-summer-card text-summer-text">شهرياً (تكرار تلقائي بعد الاعتماد)</option>
+                  </select>
+                </div>
                 <button 
                   onClick={updateTask}
                   className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black text-lg hover:bg-emerald-700 transition-all shadow-lg active:scale-95"
@@ -3638,7 +3745,18 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
                    <div className="w-14 h-14 bg-white/30 rounded-2xl mb-4 flex items-center justify-center text-summer-accent group-hover:scale-110 transition-transform">
                     <CheckSquare size={28} />
                   </div>
-                  <h4 className="text-xl font-bold text-summer-text mb-1 group-hover:text-summer-accent transition-colors">{task.title}</h4>
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                    <h4 className="text-xl font-bold text-summer-text group-hover:text-summer-accent transition-colors">{task.title}</h4>
+                    {task.recurrence && task.recurrence !== 'none' && (
+                      <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2.5 py-1 rounded-full font-bold flex items-center gap-1 border border-indigo-500/30">
+                        🔁 {{
+                          daily: 'مهمة يومية',
+                          weekly: 'مهمة أسبوعية',
+                          monthly: 'مهمة شهرية'
+                        }[task.recurrence]}
+                      </span>
+                    )}
+                  </div>
                   <p className="text-xs text-summer-text/50 line-clamp-2">بواسطة: {task.createdByName || family.find(f => f.uid === task.createdBy)?.displayName || 'الأهل'}</p>
                   {task.status === 'expired' && (
                     <div className="mt-2 flex flex-col gap-1">
