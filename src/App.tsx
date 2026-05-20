@@ -2860,14 +2860,35 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
   const [transferTarget, setTransferTarget] = useState('');
 
   useEffect(() => {
-    const q = isParent 
-      ? query(collection(db, 'tasks'), orderBy('createdAt', 'desc'))
-      : query(collection(db, 'tasks'), where('assignedTo', 'in', [profile.uid, '']), orderBy('createdAt', 'desc'));
+    // Simply fetch all tasks to avoid any custom composite index requirements.
+    // We sort and filter tasks client-side to ensure 100% resistance to index required errors.
+    const q = query(collection(db, 'tasks'), orderBy('createdAt', 'desc'));
     
     const unsubscribeTasks = onSnapshot(q, (snapshot) => {
-      setTasks(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Task)));
+      let loadedTasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Task));
+      if (!isParent) {
+        loadedTasks = loadedTasks.filter(t => t.assignedTo === profile.uid || t.assignedTo === '');
+      }
+      setTasks(loadedTasks);
     }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'tasks');
+      console.warn('Could not load ordered tasks, attempting fallback without ordering:', error);
+      // Fallback: fetch without custom orderBy in case that index is also missing
+      const fallbackQ = collection(db, 'tasks');
+      onSnapshot(fallbackQ, (fallbackSnapshot) => {
+        let loadedTasks = fallbackSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Task));
+        // Sort client-side safely
+        loadedTasks.sort((a, b) => {
+          const tA = a.createdAt?.toDate?.()?.getTime() || (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+          const tB = b.createdAt?.toDate?.()?.getTime() || (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+          return tB - tA;
+        });
+        if (!isParent) {
+          loadedTasks = loadedTasks.filter(t => t.assignedTo === profile.uid || t.assignedTo === '');
+        }
+        setTasks(loadedTasks);
+      }, (err) => {
+        handleFirestoreError(err, OperationType.LIST, 'tasks');
+      });
     });
 
     const unsubscribeFamily = onSnapshot(collection(db, 'users'), (snapshot) => {
@@ -2969,16 +2990,20 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
       alert('الرجاء إدخال اسم المهمة أولاً');
       return;
     }
+
+    const amt = Number(newRewardAmount);
+    const rewardAmt = isNaN(amt) || amt < 0 ? 10 : amt;
+
     try {
-      const assignedUser = family.find(f => f.uid === newAssigned);
+      const assignedUser = newAssigned ? family.find(f => f.uid === newAssigned) : null;
       await addDoc(collection(db, 'tasks'), {
-        title: newTitle,
+        title: newTitle.trim(),
         description: isParent ? 'مهمة عائلية من الأهل' : `طلب مهمة من ${profile.displayName} 🌟`,
-        points: Number(newRewardAmount),
+        points: rewardAmt,
         rewardType: newRewardType,
-        rewardAmount: Number(newRewardAmount),
+        rewardAmount: rewardAmt,
         status: 'pending',
-        assignedTo: newAssigned,
+        assignedTo: newAssigned || '',
         assignedToName: assignedUser?.displayName || 'الجميع',
         startTime: newStartTime || null,
         endTime: newEndTime || null,
@@ -2990,7 +3015,7 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
       // Notify Target Member
       if (newAssigned && newAssigned !== profile.uid) {
         const title = isParent ? 'مهمة جديدة! 🚀' : 'طلب مساعدة/مهمة! 🤝';
-        const body = `لقد تم تكليفك بمهمة من ${profile.displayName}: ${newTitle} والمكافأة ${newRewardAmount} ${newRewardType === 'points' ? 'نقطة' : 'توكن'} ✨`;
+        const body = `لقد تم تكليفك بمهمة من ${profile.displayName}: ${newTitle} والمكافأة ${rewardAmt} ${newRewardType === 'points' ? 'نقطة' : 'توكن'} ✨`;
         await sendNotification(newAssigned, title, body, 'task');
       }
 
@@ -3001,8 +3026,8 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
       setShowAdd(false);
       alert('تمت إضافة المهمة بنجاح! 🎉');
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, 'tasks');
-      alert('فشل في حفظ المهمة، يرجى المحاولة لاحقاً');
+      console.error('Failed to create task in Firestore:', error);
+      alert(`فشل في حفظ المهمة: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
 
