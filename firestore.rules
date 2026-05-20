@@ -21,21 +21,25 @@ service cloud.firestore {
 
     function isParent() {
       return isSignedIn() && (
-        request.auth.token.email == 'basim5252@gmail.com' ||
-        request.auth.token.email == 'Hayatalzaki@gmail.com' ||
+        request.auth.token.get('email', '') == 'basim5252@gmail.com' ||
+        request.auth.token.get('email', '') == 'Hayatalzaki@gmail.com' ||
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'parent')
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', 'child') == 'parent')
       );
     }
 
     function isChild() {
       return isSignedIn() && 
         exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'child';
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', 'parent') == 'child';
     }
 
     function isValidId(id) {
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isNumeric(val) {
+      return val is int || val is float;
     }
 
     // Entity Validations
@@ -43,32 +47,32 @@ service cloud.firestore {
       return data.keys().hasAll(['uid', 'role', 'points']) 
         && data.uid == request.auth.uid
         && data.role in ['parent', 'child']
-        && data.points is number
+        && isNumeric(data.points)
         && data.points >= 0
-        && (!data.keys().contains('totalPointsEarned') || data.totalPointsEarned is number)
-        && (!data.keys().contains('tokensBalance') || data.tokensBalance is number);
+        && (!data.keys().contains('totalPointsEarned') || isNumeric(data.totalPointsEarned))
+        && (!data.keys().contains('tokensBalance') || isNumeric(data.tokensBalance));
     }
 
     function isValidTask(data) {
       return data.keys().hasAll(['title', 'status', 'createdBy'])
         && data.title is string && data.title.size() <= 200
         && data.status in ['pending', 'completed', 'approved', 'rejected', 'expired']
-        && (data.keys().contains('points') ? (data.points is number && data.points >= 0) : true)
-        && (data.keys().contains('rewardAmount') ? (data.rewardAmount is number && data.rewardAmount >= 0) : true);
+        && (data.keys().contains('points') ? (isNumeric(data.points) && data.points >= 0) : true)
+        && (data.keys().contains('rewardAmount') ? (isNumeric(data.rewardAmount) && data.rewardAmount >= 0) : true);
     }
 
     function isValidTransaction(data) {
       return data.keys().hasAll(['userId', 'type', 'status'])
         && data.userId == request.auth.uid
         && data.type in ['earn', 'redeem', 'prize_purchase', 'token_purchase']
-        && (data.keys().contains('points') ? (data.points is number && data.points >= 0) : true)
-        && (data.keys().contains('tokensSpent') ? (data.tokensSpent is number && data.tokensSpent >= 0) : true);
+        && (data.keys().contains('points') ? (isNumeric(data.points) && data.points >= 0) : true)
+        && (data.keys().contains('tokensSpent') ? (isNumeric(data.tokensSpent) && data.tokensSpent >= 0) : true);
     }
 
     function isValidTokenProduct(data) {
       return data.keys().hasAll(['name', 'price', 'image', 'stock', 'createdAt'])
         && data.name is string && data.name.size() <= 200
-        && data.price is number && data.price >= 0;
+        && isNumeric(data.price) && data.price >= 0;
     }
 
     function isValidMessage(data) {
@@ -90,13 +94,13 @@ service cloud.firestore {
     function isValidPrize(data) {
       return data.keys().hasAll(['title', 'cost', 'createdAt'])
         && data.title is string && data.title.size() <= 200
-        && data.cost is number && data.cost >= 0;
+        && isNumeric(data.cost) && data.cost >= 0;
     }
 
     function isValidBigGoal(data) {
       return data.keys().hasAll(['title', 'targetPoints', 'userId', 'status'])
         && data.title is string && data.title.size() <= 200
-        && data.targetPoints is number && data.targetPoints >= 0
+        && isNumeric(data.targetPoints) && data.targetPoints >= 0
         && data.userId is string
         && data.status in ['active', 'completed'];
     }
@@ -104,7 +108,7 @@ service cloud.firestore {
     function isValidMonthlyReward(data) {
       return data.keys().hasAll(['title', 'cost', 'month', 'createdAt'])
         && data.title is string && data.title.size() <= 200
-        && data.cost is number && data.cost >= 0
+        && isNumeric(data.cost) && data.cost >= 0
         && data.month is string
         && data.createdAt == request.time;
     }
@@ -121,7 +125,7 @@ service cloud.firestore {
       return data.keys().hasAll(['userId', 'points', 'reason', 'evaluatorId', 'createdAt'])
         && data.evaluatorId == request.auth.uid
         && data.userId is string
-        && data.points is number
+        && isNumeric(data.points)
         && data.reason is string && data.reason.size() <= 1000
         && data.createdAt == request.time;
     }
@@ -143,7 +147,7 @@ service cloud.firestore {
       return data.keys().hasAll(['transactionId', 'userId', 'amount', 'issuedAt', 'serialNumber'])
         && data.transactionId is string
         && data.userId is string
-        && data.amount is number
+        && isNumeric(data.amount)
         && data.issuedAt == request.time;
     }
 
@@ -192,7 +196,7 @@ service cloud.firestore {
 
     match /tasks/{taskId} {
       allow get, list: if isSignedIn();
-      allow create: if isSignedIn() && isValidTask(request.resource.data) && (isParent() || request.resource.data.status == 'pending');
+      allow create: if isSignedIn() && isValidTask(request.resource.data) && (request.resource.data.status == 'pending' || isParent());
       allow update: if isParent() 
         || (isSignedIn() && resource.data.assignedTo == request.auth.uid 
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'completedAt', 'completedImageUrl'])
