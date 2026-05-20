@@ -57,16 +57,16 @@ service cloud.firestore {
       return data.keys().hasAll(['title', 'status', 'createdBy'])
         && data.title is string && data.title.size() <= 200
         && data.status in ['pending', 'completed', 'approved', 'rejected', 'expired']
-        && (data.keys().contains('points') ? (isNumeric(data.points) && data.points >= 0) : true)
-        && (data.keys().contains('rewardAmount') ? (isNumeric(data.rewardAmount) && data.rewardAmount >= 0) : true);
+        && (!data.keys().contains('points') || (isNumeric(data.points) && data.points >= 0))
+        && (!data.keys().contains('rewardAmount') || (isNumeric(data.rewardAmount) && data.rewardAmount >= 0));
     }
 
     function isValidTransaction(data) {
       return data.keys().hasAll(['userId', 'type', 'status'])
         && data.userId == request.auth.uid
         && data.type in ['earn', 'redeem', 'prize_purchase', 'token_purchase']
-        && (data.keys().contains('points') ? (isNumeric(data.points) && data.points >= 0) : true)
-        && (data.keys().contains('tokensSpent') ? (isNumeric(data.tokensSpent) && data.tokensSpent >= 0) : true);
+        && (!data.keys().contains('points') || (isNumeric(data.points) && data.points >= 0))
+        && (!data.keys().contains('tokensSpent') || (isNumeric(data.tokensSpent) && data.tokensSpent >= 0));
     }
 
     function isValidTokenProduct(data) {

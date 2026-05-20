@@ -1582,8 +1582,17 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
           
           <div className="grid grid-cols-1 gap-4">
             {tasks
-              .filter(t => isParent || t.assignedTo === profile.uid)
-              .filter(t => t.status !== 'approved')
+              .map(t => {
+                if (t.status === 'pending' && t.endTime) {
+                  const end = typeof t.endTime === 'string' ? new Date(t.endTime) : t.endTime.toDate?.() || new Date(t.endTime.seconds * 1000);
+                  if (end < new Date()) {
+                    return { ...t, status: 'expired' as const };
+                  }
+                }
+                return t;
+              })
+              .filter(t => isParent || t.assignedTo === profile.uid || t.assignedTo === '')
+              .filter(t => t.status !== 'approved' && t.status !== 'expired')
               .slice(0, 3)
               .map((task) => (
               <div key={task.id} className="bg-summer-primary p-5 rounded-3xl border border-white/30 flex flex-col justify-between shadow-xl relative overflow-hidden group">
