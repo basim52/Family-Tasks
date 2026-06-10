@@ -4640,10 +4640,12 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
   const [requests, setRequests] = useState<any[]>([]);
   const [selectedCheque, setSelectedCheque] = useState<Cheque | null>(null);
   const [redeemError, setRedeemError] = useState<string | null>(null);
+  const [bulkProcessing, setBulkProcessing] = useState(false);
   const isParent = profile.role === 'parent';
 
   // Monthly stats for redemption
   const now = new Date();
+  const isDay10 = now.getDate() === 10;
   const monthlyRedemptions = requests.filter(r => {
     const rDate = r.requestedAt?.toDate ? r.requestedAt.toDate() : new Date();
     return r.type === 'redeem' && 
@@ -4734,6 +4736,68 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
     }
   };
 
+  const bulkApproveRedeems = async () => {
+    const pendingRequests = requests.filter(r => r.status === 'pending' && r.type === 'redeem');
+    if (pendingRequests.length === 0) {
+      alert('لا توجد طلبات صرف معلقة حالياً لكي يتم تفعيلها!');
+      return;
+    }
+
+    const confirmAction = window.confirm(
+      `هل أنت متأكد من تفعيل الصرف لجميع طلبات الأبطال المعلقة (${pendingRequests.length} طلبات)؟`
+    );
+    if (!confirmAction) return;
+
+    setBulkProcessing(true);
+    let approvedCount = 0;
+    try {
+      for (const req of pendingRequests) {
+        // 1. Mark status
+        await updateDoc(doc(db, 'transactions', req.id), { status: 'approved', processedAt: serverTimestamp() });
+        
+        // 2. Subtract points from profile
+        await updateDoc(doc(db, 'users', req.userId), { points: increment(-req.points) });
+        
+        // 3. Create Cheque
+        const serial = `CHQ-${Math.floor(Math.random() * 900000 + 100000)}`;
+        const chequeData = {
+          transactionId: req.id,
+          userId: req.userId,
+          userName: req.userName,
+          amount: req.currencyAmount,
+          currency: 'ر.س',
+          issuedAt: serverTimestamp(),
+          issuedBy: profile.uid,
+          issuedByName: profile.displayName,
+          serialNumber: serial
+        };
+        await addDoc(collection(db, 'cheques'), chequeData);
+        
+        // 4. Notify Child
+        await sendNotification(req.userId, 'تم تفعيل رواتب اليوم 10! ✍️🎉', `لقد تمت الموافقة الفورية لليوم 10. تفضل الشيك بمبلغ ${req.currencyAmount} ريال.`, 'success');
+        
+        approvedCount++;
+      }
+      
+      // Send Global Announcement
+      await addDoc(collection(db, 'notifications'), {
+        userId: 'all',
+        title: '🔔 تم صرف رواتب اليوم 10 بنجاح!',
+        body: `أهلاً بالأبطال! لقد تم تفعيل الصرف الجماعي التلقائي لليوم 10 من الشهر بنجاح! تفضلوا بزيارة الشاشات لاستلام شيكاتكم الحقيقية! 💰🎉`,
+        type: 'achievement',
+        read: false,
+        createdAt: serverTimestamp()
+      });
+
+      alert(`رائع! تم تفعيل وصرف جميع طلبات اليوم 10 بنجاح لـ ${approvedCount} من أبطال العائلة! 🏦💸✨`);
+    } catch (err) {
+      console.error(err);
+      alert('حدث خطأ أثناء الصرف الجماعي، يرجى التكرار لاحقاً.');
+    } finally {
+      setBulkProcessing(false);
+    }
+  };
+
   const viewCheque = async (transactionId: string) => {
     const q = query(collection(db, 'cheques'), where('transactionId', '==', transactionId));
     const snap = await getDocs(q);
@@ -4749,6 +4813,54 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
       <Header title="البنك العائلي" profile={profile} />
       <div className="px-6 mt-6 space-y-8">
         <WalletCard profile={profile} exchangeRate={0.25} />
+
+        {/* Celebratory Day 10 Interactive Payout Banner */}
+        {isDay10 && (
+          <motion.div 
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-gradient-to-r from-amber-500/15 via-emerald-500/10 to-indigo-500/15 p-6 rounded-[2.5rem] border-2 border-emerald-500/30 text-right space-y-4 relative overflow-hidden shadow-2xl"
+          >
+            <div className="absolute top-0 left-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 relative z-10">
+              <div className="flex items-center gap-3">
+                <div className="w-14 h-14 bg-gradient-to-br from-emerald-500/20 to-teal-500/20 text-emerald-300 rounded-3xl flex items-center justify-center shadow-lg">
+                  <span className="text-2xl font-black">10</span>
+                </div>
+                <div>
+                  <h3 className="font-black text-summer-text text-base">مهرجان الصرف الشهري العائلي 🏦🎉</h3>
+                  <p className="text-[10px] text-emerald-400 font-bold tracking-widest uppercase">Family Bank Payout Day is Live!</p>
+                </div>
+              </div>
+
+              {isParent ? (
+                <button
+                  onClick={bulkApproveRedeems}
+                  disabled={bulkProcessing}
+                  className="px-6 py-4 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-slate-900 font-black rounded-2xl text-xs transition-all flex items-center gap-2 shadow-xl hover:shadow-emerald-500/20 active:scale-95 text-center self-stretch sm:self-auto disabled:opacity-50 shrink-0"
+                >
+                  {bulkProcessing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-slate-900" />
+                      جاري الصرف الجماعي...
+                    </>
+                  ) : (
+                    <>
+                      🏦 تفعيل الصرف التلقائي الجماعي للجميع
+                    </>
+                  )}
+                </button>
+              ) : (
+                <span className="text-[10px] font-black text-emerald-400 bg-emerald-500/10 px-4 py-2 rounded-2xl border border-emerald-500/20">
+                  بوابة الصرف مفتوحة بالكامل لك اليوم 🔑
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-summer-text/80 leading-relaxed font-bold">
+              لقد جاء تاريخ <span className="text-amber-400 font-mono">10</span> من الشهر! وهو اليوم المحدد رسمياً في البنك العائلي الذكي لتصفير النقاط والتحويل اليدوي أو التلقائي الفوري لكاش حقيقي وشيكات ممتازة لخدمة الأبطال!
+            </p>
+          </motion.div>
+        )}
 
         <div className="bg-summer-accent/10 border border-summer-accent/20 p-4 rounded-2xl flex items-center gap-3">
           <Bell className="text-summer-accent shrink-0" size={20} />
