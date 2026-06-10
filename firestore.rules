@@ -169,6 +169,16 @@ service cloud.firestore {
         && (data.createdAt == request.time || data.createdAt == null);
     }
 
+    function isValidDevelopmentPlan(data) {
+      return data.keys().hasAll(['title', 'assignedTo', 'assignedToName', 'creatorId', 'rewardCoins', 'status', 'milestones', 'createdAt'])
+        && data.title is string && data.title.size() <= 200
+        && data.assignedTo is string
+        && data.assignedToName is string
+        && data.creatorId == request.auth.uid
+        && isNumeric(data.rewardCoins)
+        && data.status in ['active', 'completed'];
+    }
+
     function isValidSpinLog(data) {
       return data.keys().hasAll(['userName', 'userId', 'resultLabel', 'timestamp'])
         && data.userId == request.auth.uid
@@ -306,6 +316,13 @@ service cloud.firestore {
     match /silenceSessions/{sessionId} {
       allow get, list: if isSignedIn();
       allow create: if isParent() && isValidSilenceSession(request.resource.data);
+      allow delete: if isParent();
+    }
+
+    match /developmentPlans/{planId} {
+      allow read: if isSignedIn();
+      allow create: if isParent() && isValidDevelopmentPlan(request.resource.data);
+      allow update: if isParent() || (isSignedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['milestones', 'status', 'completedAt']));
       allow delete: if isParent();
     }
 

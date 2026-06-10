@@ -46,6 +46,7 @@ import {
   RotateCcw,
   Sparkles,
   Share2,
+  Compass,
   Send,
   Download,
   Trash2,
@@ -77,6 +78,7 @@ import { WalletCard } from './components/wallet/WalletCard';
 import { TaskImageGenerator } from './components/TaskImageGenerator';
 import { FamilyPerformanceChart } from './components/FamilyPerformanceChart';
 import { FamilyGame } from './components/FamilyGame';
+import { DevelopmentPlansPage } from './components/DevelopmentPlansPage';
 import { Play, Pause, Loader2 } from 'lucide-react';
 import { 
   collection, 
@@ -1709,6 +1711,24 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
         {/* Wallet Section */}
         <WalletCard profile={profile} exchangeRate={0.25} />
 
+        {/* Quick Actions for Child */}
+        {!isParent && (
+          <section className="space-y-4">
+            <h3 className="text-sm font-bold text-summer-text/40 uppercase tracking-[0.2em] px-1">بوابات التفوق والتميز</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Link to="/development-plans" className="bg-summer-card p-6 rounded-3xl border border-white/20 flex items-center gap-4 group shadow-xl hover:border-white/40 transition-all">
+                <div className="w-12 h-12 bg-indigo-500 rounded-2xl flex items-center justify-center text-white group-hover:scale-110 transition-transform">
+                  <Compass size={24} />
+                </div>
+                <div className="text-right">
+                  <p className="font-bold text-summer-text text-sm">البوصلة وخرائط تفوقي 🌱🧭</p>
+                  <p className="text-[10px] text-summer-text/40">مسارات ذكية وضعها والداي لك بالحب للوصول لـ 200 نقطة!</p>
+                </div>
+              </Link>
+            </div>
+          </section>
+        )}
+
         {/* Quick Actions for Parent */}
         {isParent && (
           <section className="space-y-4">
@@ -1748,6 +1768,15 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
                 <div className="text-right">
                   <p className="font-bold text-summer-text text-sm">المحفز الذكي</p>
                   <p className="text-[10px] text-summer-text/40">رسائل إيجابية</p>
+                </div>
+              </Link>
+              <Link to="/development-plans" className="bg-summer-card p-6 rounded-3xl border border-white/20 flex items-center gap-4 group shadow-xl hover:border-white/40 transition-all">
+                <div className="w-12 h-12 bg-indigo-500 rounded-2xl flex items-center justify-center text-white group-hover:scale-110 transition-transform">
+                  <Compass size={24} />
+                </div>
+                <div className="text-right">
+                  <p className="font-bold text-summer-text text-sm">البوصلة والخطط التطويرية</p>
+                  <p className="text-[10px] text-summer-text/40">رسم ومتابعة المسارات التربوية 🎯🌱</p>
                 </div>
               </Link>
             </div>
@@ -7035,6 +7064,7 @@ export default function App() {
             <Route path="/shop" element={<ShopPage profile={profile} />} />
             <Route path="/behavior" element={<BehaviorRatingPage profile={profile} />} />
             <Route path="/motivation" element={<MotivationPage profile={profile} />} />
+            <Route path="/development-plans" element={<DevelopmentPlansPage profile={profile} />} />
             <Route path="/settings" element={<SettingsPage profile={profile} />} />
             <Route path="/family-game" element={<FamilyGamePage profile={profile} />} />
             <Route path="*" element={<Navigate to="/" />} />

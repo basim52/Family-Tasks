@@ -197,3 +197,25 @@ export interface SilenceSession {
   recorderName: string;
   createdAt: any;
 }
+
+export interface Milestone {
+  id: string;
+  title: string;
+  completed: boolean;
+  completedAt?: any;
+}
+
+export interface DevelopmentPlan {
+  id: string;
+  title: string;
+  description: string;
+  assignedTo: string;
+  assignedToName: string;
+  creatorId: string;
+  creatorName: string;
+  rewardCoins: number;
+  status: 'active' | 'completed';
+  milestones: Milestone[];
+  createdAt: any;
+  completedAt?: any;
+}

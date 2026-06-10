@@ -224,6 +224,28 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "userName", "phrase", "recorderId", "recorderName", "createdAt"]
+    },
+    "DevelopmentPlan": {
+      "title": "Development Plan",
+      "description": "A personal growth/development roadmap with milestones built by parents for children",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "assignedTo": { "type": "string" },
+        "assignedToName": { "type": "string" },
+        "creatorId": { "type": "string" },
+        "creatorName": { "type": "string" },
+        "rewardCoins": { "type": "number" },
+        "status": { "type": "string", "enum": ["active", "completed"] },
+        "milestones": {
+          "type": "array",
+          "items": { "type": "object" }
+        },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "completedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "assignedTo", "assignedToName", "creatorId", "rewardCoins", "status", "milestones", "createdAt"]
     }
   },
   "firestore": {
@@ -290,6 +312,10 @@
     "silenceSessions": {
       "schema": "SilenceSession",
       "description": "Recording of family calm moments"
+    },
+    "developmentPlans": {
+      "schema": "DevelopmentPlan",
+      "description": "Custom educational and behavior growth roadmaps built by parents for children"
     }
   }
 }
