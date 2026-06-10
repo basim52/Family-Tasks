@@ -96,7 +96,8 @@ import {
   increment,
   getDoc,
   getDocs,
-  setDoc
+  setDoc,
+  runTransaction
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Task, Message, UserProfile, Prize, StoreProduct, TaskComment, BigGoal, MonthlyReward, Call, BehaviorRating, Motivation, MotivationTemplate, Cheque, Badge, ThemeType, SilenceSession } from './types';
@@ -4762,35 +4763,72 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
       const pointsToSubtract = Number(request.points) || 200;
       const currencyAmt = Number(request.currencyAmount) || 50;
 
-      // 1. Mark status
-      await updateDoc(doc(db, 'transactions', request.id), { status: 'approved', processedAt: serverTimestamp() });
-      
-      // 2. Subtract points from profile
-      await updateDoc(doc(db, 'users', request.userId), { points: increment(-pointsToSubtract) });
-      
-      // 3. Create Cheque
+      const userDocRef = doc(db, 'users', request.userId);
+      const transactionDocRef = doc(db, 'transactions', request.id);
+      const chequeCollectionRef = collection(db, 'cheques');
       const serial = `CHQ-${Math.floor(Math.random() * 900000 + 100000)}`;
-      const chequeData = {
-        transactionId: request.id,
-        userId: request.userId,
-        userName: request.userName || 'بطل عائلي',
-        amount: currencyAmt,
-        currency: 'ر.س',
-        issuedAt: serverTimestamp(),
-        issuedBy: profile.uid,
-        issuedByName: profile.displayName || 'الأهل',
-        serialNumber: serial
-      };
-      
-      await addDoc(collection(db, 'cheques'), chequeData);
-      
-      // 4. Notify Child
-      await sendNotification(request.userId, 'تم استلام الشيك! ✍️', `لقد تمت الموافقة على طلب الصرف. تفضل الشيك الخاص بك بمبلغ ${currencyAmt} ريال.`, 'success');
-      
-      alert(`تمت الموافقة! رقم الشيك: ${serial}`);
-    } catch (err) {
+
+      await runTransaction(db, async (transaction) => {
+        // 1. Check user points
+        const userSnap = await transaction.get(userDocRef);
+        if (!userSnap.exists()) {
+          throw new Error('حساب البطل غير موجود!');
+        }
+        const userData = userSnap.data();
+        const currentPoints = Number(userData.points) || 0;
+        if (currentPoints < pointsToSubtract) {
+          throw new Error(`رصيد البطل غير كافٍ! رصيده الحالي ${currentPoints} نقطة، والمطلوب للصرف هو ${pointsToSubtract} نقطة.`);
+        }
+
+        // 2. Check transaction state to prevent duplicate/race condition spend
+        const transSnap = await transaction.get(transactionDocRef);
+        if (!transSnap.exists()) {
+          throw new Error('طلب الصرف غير موجود في السجلات!');
+        }
+        const transData = transSnap.data();
+        if (transData.status !== 'pending') {
+          throw new Error('هذا الطلب قد تم معالجته أو صرفه مسبقاً!');
+        }
+
+        // 3. Mark request as approved
+        transaction.update(transactionDocRef, { 
+          status: 'approved', 
+          processedAt: serverTimestamp() 
+        });
+
+        // 4. Subtract points
+        transaction.update(userDocRef, { 
+          points: currentPoints - pointsToSubtract 
+        });
+
+        // 5. Write Cheque
+        const chequeDocRef = doc(chequeCollectionRef);
+        const chequeData = {
+          transactionId: request.id,
+          userId: request.userId,
+          userName: request.userName || 'بطل عائلي',
+          amount: currencyAmt,
+          currency: 'ر.س',
+          issuedAt: serverTimestamp(),
+          issuedBy: profile.uid,
+          issuedByName: profile.displayName || 'الأهل',
+          serialNumber: serial
+        };
+        transaction.set(chequeDocRef, chequeData);
+      });
+
+      // 6. Notify Child (outside the transact to avoid write failures on non-related collections)
+      await sendNotification(
+        request.userId, 
+        'تم استلام الشيك! ✍️', 
+        `لقد تمت الموافقة على طلب الصرف. تفضل الشيك الخاص بك بمبلغ ${currencyAmt} ريال.`, 
+        'success'
+      );
+
+      alert(`تمت الموافقة بنجاح! رقم الشيك: ${serial}`);
+    } catch (err: any) {
       console.error(err);
-      alert('حدث خطأ أثناء تنفيذ العملية');
+      alert(`حدث خطأ أثناء تنفيذ عملية الصرف: ${err.message || err}`);
     }
   };
 
@@ -4808,52 +4846,103 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
 
     setBulkProcessing(true);
     let approvedCount = 0;
+    const failures: string[] = [];
+
     try {
       for (const req of pendingRequests) {
         const pointsToSubtract = Number(req.points) || 200;
         const currencyAmt = Number(req.currencyAmount) || 50;
 
-        // 1. Mark status
-        await updateDoc(doc(db, 'transactions', req.id), { status: 'approved', processedAt: serverTimestamp() });
-        
-        // 2. Subtract points from profile
-        await updateDoc(doc(db, 'users', req.userId), { points: increment(-pointsToSubtract) });
-        
-        // 3. Create Cheque
+        const userDocRef = doc(db, 'users', req.userId);
+        const transactionDocRef = doc(db, 'transactions', req.id);
+        const chequeCollectionRef = collection(db, 'cheques');
         const serial = `CHQ-${Math.floor(Math.random() * 900000 + 100000)}`;
-        const chequeData = {
-          transactionId: req.id,
-          userId: req.userId,
-          userName: req.userName || 'بطل عائلي',
-          amount: currencyAmt,
-          currency: 'ر.س',
-          issuedAt: serverTimestamp(),
-          issuedBy: profile.uid,
-          issuedByName: profile.displayName || 'الأهل',
-          serialNumber: serial
-        };
-        await addDoc(collection(db, 'cheques'), chequeData);
-        
-        // 4. Notify Child
-        await sendNotification(req.userId, 'تم تفعيل رواتب اليوم 10! ✍️🎉', `لقد تمت الموافقة الفورية لليوم 10. تفضل الشيك بمبلغ ${currencyAmt} ريال.`, 'success');
-        
-        approvedCount++;
-      }
-      
-      // Send Global Announcement
-      await addDoc(collection(db, 'notifications'), {
-        userId: 'all',
-        title: '🔔 تم صرف رواتب اليوم 10 بنجاح!',
-        body: `أهلاً بالأبطال! لقد تم تفعيل الصرف الجماعي التلقائي لليوم 10 من الشهر بنجاح! تفضلوا بزيارة الشاشات لاستلام شيكاتكم الحقيقية! 💰🎉`,
-        type: 'achievement',
-        read: false,
-        createdAt: serverTimestamp()
-      });
 
-      alert(`رائع! تم تفعيل وصرف جميع طلبات اليوم 10 بنجاح لـ ${approvedCount} من أبطال العائلة! 🏦💸✨`);
-    } catch (err) {
+        try {
+          await runTransaction(db, async (transaction) => {
+            // Check points
+            const userSnap = await transaction.get(userDocRef);
+            if (!userSnap.exists()) {
+              throw new Error('حساب البطل غير موجود!');
+            }
+            const userData = userSnap.data();
+            const currentPoints = Number(userData.points) || 0;
+            if (currentPoints < pointsToSubtract) {
+              throw new Error(`رصيد البطل ${req.userName || ''} غير كافٍ! (${currentPoints} < ${pointsToSubtract})`);
+            }
+
+            // Check trans status
+            const transSnap = await transaction.get(transactionDocRef);
+            if (!transSnap.exists()) {
+              throw new Error('طلب الصرف غير موجود!');
+            }
+            const transData = transSnap.data();
+            if (transData.status !== 'pending') {
+              throw new Error('طلب معالج مسبقاً!');
+            }
+
+            // Update status
+            transaction.update(transactionDocRef, { 
+              status: 'approved', 
+              processedAt: serverTimestamp() 
+            });
+
+            // Subtract points
+            transaction.update(userDocRef, { 
+              points: currentPoints - pointsToSubtract 
+            });
+
+            // Set cheque
+            const chequeDocRef = doc(chequeCollectionRef);
+            const chequeData = {
+              transactionId: req.id,
+              userId: req.userId,
+              userName: req.userName || 'بطل عائلي',
+              amount: currencyAmt,
+              currency: 'ر.س',
+              issuedAt: serverTimestamp(),
+              issuedBy: profile.uid,
+              issuedByName: profile.displayName || 'الأهل',
+              serialNumber: serial
+            };
+            transaction.set(chequeDocRef, chequeData);
+          });
+
+          // Notify Child
+          await sendNotification(
+            req.userId, 
+            'تم تفعيل رواتب اليوم 10! ✍️🎉', 
+            `لقد تمت الموافقة الفورية لليوم 10. تفضل الشيك بمبلغ ${currencyAmt} ريال.`, 
+            'success'
+          );
+
+          approvedCount++;
+        } catch (singleErr: any) {
+          console.error(`Error processing bulk request ${req.id}:`, singleErr);
+          failures.push(`طلب البطل ${req.userName || 'مجهول'}: ${singleErr.message || 'خطأ غير معروف'}`);
+        }
+      }
+
+      // Send Global Announcement only if we approved at least one
+      if (approvedCount > 0) {
+        await addDoc(collection(db, 'notifications'), {
+          userId: 'all',
+          title: '🔔 تم صرف رواتب اليوم 10 بنجاح!',
+          body: `أهلاً بالأبطال! لقد تم تفعيل الصرف الجماعي التلقائي لليوم 10 من الشهر بنجاح! تفضلوا بزيارة الشاشات لاستلام شيكاتكم الحقيقية! 💰🎉`,
+          type: 'achievement',
+          read: false,
+          createdAt: serverTimestamp()
+        });
+      }
+
+      if (failures.length > 0) {
+        alert(`تم تفعيل وصرف ${approvedCount} طلب بنجاح.\n\nلم نتمكن من معالجة بعض الطلبات:\n${failures.join('\n')}`);
+      } else {
+        alert(`رائع! تم تفعيل وصرف جميع طلبات اليوم 10 بنجاح لـ ${approvedCount} من أبطال العائلة! 🏦💸✨`);
+      }
+    } catch (err: any) {
       console.error(err);
-      alert('حدث خطأ أثناء الصرف الجماعي، يرجى التكرار لاحقاً.');
+      alert(`حدث خطأ غير متوقع أثناء الصرف الجماعي: ${err.message || err}`);
     } finally {
       setBulkProcessing(false);
     }
