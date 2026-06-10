@@ -4965,34 +4965,59 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
     if (!confirmAction) return;
 
     try {
-      const transactionRef = await addDoc(collection(db, 'transactions'), {
-        userId: child.uid,
-        userName: child.displayName || 'بطل عائلي',
-        type: 'redeem',
-        points: pAmt,
-        currencyAmount: 50,
-        status: 'approved',
-        requestedAt: serverTimestamp(),
-        processedAt: serverTimestamp()
-      });
-
-      await updateDoc(doc(db, 'users', child.uid), {
-        points: increment(-pAmt)
-      });
-
+      const userDocRef = doc(db, 'users', child.uid);
+      const transactionCollectionRef = collection(db, 'transactions');
+      const chequesCollectionRef = collection(db, 'cheques');
+      const transactionDocRef = doc(transactionCollectionRef);
+      const chequeDocRef = doc(chequesCollectionRef);
       const serial = `CHQ-${Math.floor(Math.random() * 900000 + 100000)}`;
-      await addDoc(collection(db, 'cheques'), {
-        transactionId: transactionRef.id,
-        userId: child.uid,
-        userName: child.displayName || 'بطل عائلي',
-        amount: 50,
-        currency: 'ر.س',
-        issuedAt: serverTimestamp(),
-        issuedBy: profile.uid,
-        issuedByName: profile.displayName || 'الأهل',
-        serialNumber: serial
+
+      await runTransaction(db, async (transaction) => {
+        // 1. Get latest points value to prevent race condition or double spend
+        const userSnap = await transaction.get(userDocRef);
+        if (!userSnap.exists()) {
+          throw new Error('حساب البطل غير موجود!');
+        }
+        const userData = userSnap.data();
+        const currentPoints = Number(userData.points) || 0;
+        if (currentPoints < pAmt) {
+          throw new Error(`رصيد البطل غير كافٍ! رصيده الحالي هو ${currentPoints} نقطة، والمطلوب للصرف هو ${pAmt} نقطة.`);
+        }
+
+        // 2. Create the transaction log document with approved status
+        const transactionData = {
+          userId: child.uid,
+          userName: child.displayName || 'بطل عائلي',
+          type: 'redeem',
+          points: pAmt,
+          currencyAmount: 50,
+          status: 'approved',
+          requestedAt: serverTimestamp(),
+          processedAt: serverTimestamp()
+        };
+        transaction.set(transactionDocRef, transactionData);
+
+        // 3. Deduct points safely
+        transaction.update(userDocRef, {
+          points: currentPoints - pAmt
+        });
+
+        // 4. Create the corresponding Cheque document
+        const chequeData = {
+          transactionId: transactionDocRef.id,
+          userId: child.uid,
+          userName: child.displayName || 'بطل عائلي',
+          amount: 50,
+          currency: 'ر.س',
+          issuedAt: serverTimestamp(),
+          issuedBy: profile.uid,
+          issuedByName: profile.displayName || 'الأهل',
+          serialNumber: serial
+        };
+        transaction.set(chequeDocRef, chequeData);
       });
 
+      // 5. Fire notification (outside transaction to avoid unrelated collection rule conflicts)
       await sendNotification(
         child.uid, 
         'صرف نقدي فوري! 🏦💰', 
@@ -5155,16 +5180,18 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
                       </div>
                     </div>
 
-                    <div className="pt-2 border-t border-white/5">
+                     <div className="pt-2 border-t border-white/5">
                       <button
                         onClick={() => handleInstantDisburse(child)}
-                        disabled={!isDay10 || !hasReached200}
+                        disabled={(!isDay10 && !isParent) || !hasReached200}
                         className="w-full py-3.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 disabled:from-white/5 disabled:to-white/5 text-slate-900 disabled:text-white/30 font-extrabold rounded-xl text-[10px] transition-all flex items-center justify-center gap-1 hover:shadow-lg active:scale-95 disabled:pointer-events-none"
                       >
-                        {!isDay10 ? (
-                          'الصرف متاح يوم 10 ميلادي فقط 🗓️'
-                        ) : !hasReached200 ? (
+                        {!hasReached200 ? (
                           'النقاط أقل من 200 نقطة المستهدفة'
+                        ) : !isDay10 && isParent ? (
+                          'تجاوز تاريخ الصرف وصرف 50 ريال ⚡💰'
+                        ) : !isDay10 ? (
+                          'الصرف متاح يوم 10 ميلادي فقط 🗓️'
                         ) : (
                           'صرف 50 ريال مالي فوراً! 💰'
                         )}
