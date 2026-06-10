@@ -4689,7 +4689,7 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
 
   // Monthly stats for redemption
   const now = new Date();
-  const isDay10 = now.getDate() === 10;
+  const isDay10 = true; // تم تفعيل الصرف في أي وقت دون قيود التواريخ
   const monthlyRedemptions = requests.filter(r => {
     const rDate = r.requestedAt?.toDate ? r.requestedAt.toDate() : new Date();
     return r.type === 'redeem' && 
@@ -4698,7 +4698,7 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
            rDate.getFullYear() === now.getFullYear();
   });
   const pointsRedeemedThisMonth = monthlyRedemptions.reduce((acc, curr) => acc + (curr.points || 0), 0);
-  const remainingMonthlyPoints = Math.max(0, 200 - pointsRedeemedThisMonth);
+  const remainingMonthlyPoints = 999999;
 
   useEffect(() => {
     const qTr = isParent 
@@ -4727,23 +4727,20 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
   }, [profile.uid, isParent]);
 
   const requestRedeem = async () => {
-    if (!isDay10) {
-      const confirmBypass = window.confirm('تنبيه: يوم الصرف الرسمي والمحدد للرواتب هو يوم 10 من كل شهر ميلادي. هل تود إرسال طلب صرف استثنائي للأهل لمراجعته وتفعيله لك حالياً؟ 📬⏳');
-      if (!confirmBypass) return;
-    }
-
-    if (profile.points < 200) {
-      alert(`عذراً، يمكنك استبدال النقاط فقط عند الوصول إلى 200 نقطة بالتمام (رصيدك الحالي: ${profile.points} نقطة).`);
+    if (profile.points <= 0) {
+      alert('عذراً، يجب أن يكون لديك نقاط تزيد عن 0 لطلب الصرف.');
       return;
     }
 
-    if (pointsRedeemedThisMonth >= 200) {
-      alert('نعتذر، لقد قمت بصرف الحد الأقصى المسموح به لهذا الشهر وهو 200 نقطة (50 ريال).');
+    const pointsStr = window.prompt(`أدخل عدد النقاط التي تود صرفها واستبدالها (رصيدك الحالي: ${profile.points} نقطة):`, String(profile.points));
+    if (!pointsStr) return;
+    const pointsToRedeem = Math.floor(Number(pointsStr));
+    if (isNaN(pointsToRedeem) || pointsToRedeem <= 0 || pointsToRedeem > profile.points) {
+      alert('يرجى إدخال عدد نقاط صحيح ومناسب لرصيدك!');
       return;
     }
 
-    const pointsToRedeem = 200;
-    const sarAmount = 50;
+    const sarAmount = pointsToRedeem * 0.25;
 
     await addDoc(collection(db, 'transactions'), {
       userId: profile.uid,
@@ -4755,7 +4752,7 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
       requestedAt: serverTimestamp(),
     });
 
-    alert('تم إرسال طلب الصرف بنجاح! سيقوم الأهل بتأكيد عملية تحويل كاش 50 ريال لك فوراً! 🚀🏦');
+    alert(`تم إرسال طلب الصرف بنجاح بقيمة ${sarAmount} ريال مقابل ${pointsToRedeem} نقطة! سيقوم الأهل بتأكيد عملية تحويل الكاش لك فوراً! 🚀🏦`);
   };
 
   const approveRedeem = async (request: any) => {
@@ -4949,19 +4946,23 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
   };
 
   const handleInstantDisburse = async (child: any) => {
-    if (!isDay10) {
-      const confirmBypass = window.confirm('تنبيه: اليوم ليس 10 من الشهر (يوم صرف الرواتب المعتاد). هل تريد الاستمرار بصفتك ولي الأمر وتجاوز هذا الشرط لتفويض وصرف المبلغ فوراً حالياً؟ 🏦💰');
-      if (!confirmBypass) return;
-    }
-
-    if ((child.points || 0) < 200) {
-      alert(`البطل ${child.displayName} لم يصل إلى 200 نقطة بعد (رصيده الحالي: ${child.points || 0} نقطة). يجب الوصول إلى 200 نقطة لتمكين استبدالها بصرف مالي!`);
+    const childPoints = child.points || 0;
+    if (childPoints <= 0) {
+      alert(`عذراً، البطل ${child.displayName} لديه 0 نقاط حالياً في رصيده.`);
       return;
     }
 
-    const pAmt = 200; // Exchange exactly 200 points for 50 SAR
+    const pointsStr = window.prompt(`أدخل عدد النقاط التي تود صرفها للطفل ${child.displayName} (الرصيد الحالي: ${childPoints} نقطة):`, String(childPoints));
+    if (!pointsStr) return;
+    const pAmt = Math.floor(Number(pointsStr));
+    if (isNaN(pAmt) || pAmt <= 0 || pAmt > childPoints) {
+      alert('يرجى إدخال عدد نقاط صحيح ومناسب لرصيد البطل!');
+      return;
+    }
 
-    const confirmAction = window.confirm(`هل أنت متأكد من صرف 200 نقطة فورياً للبطل ${child.displayName} وتحويلها لشيك مالي بقيمة 50 ر.س؟`);
+    const sarAmount = pAmt * 0.25;
+
+    const confirmAction = window.confirm(`هل أنت متأكد من صرف ${pAmt} نقطة فورياً للبطل ${child.displayName} وتحويلها لشيك مالي بقيمة ${sarAmount} ر.س؟`);
     if (!confirmAction) return;
 
     try {
@@ -4990,7 +4991,7 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
           userName: child.displayName || 'بطل عائلي',
           type: 'redeem',
           points: pAmt,
-          currencyAmount: 50,
+          currencyAmount: sarAmount,
           status: 'approved',
           requestedAt: serverTimestamp(),
           processedAt: serverTimestamp()
@@ -5007,7 +5008,7 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
           transactionId: transactionDocRef.id,
           userId: child.uid,
           userName: child.displayName || 'بطل عائلي',
-          amount: 50,
+          amount: sarAmount,
           currency: 'ر.س',
           issuedAt: serverTimestamp(),
           issuedBy: profile.uid,
@@ -5021,11 +5022,11 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
       await sendNotification(
         child.uid, 
         'صرف نقدي فوري! 🏦💰', 
-        `لقد قام الأهل بصرف 200 نقطة لك فورياً واستلام شيك بمبلغ 50 ريال! مبارك!`, 
+        `لقد قام الأهل بصرف ${pAmt} نقطة لك فورياً واستلام شيك بمبلغ ${sarAmount} ريال! مبارك!`, 
         'success'
       );
 
-      alert(`بنجاح! تم تفعيل وصرف الشيك برقم (${serial}) بمبلغ 50 ريال للبطل ${child.displayName}! 💸✨`);
+      alert(`بنجاح! تم تفعيل وصرف الشيك برقم (${serial}) بمبلغ ${sarAmount} ريال للبطل ${child.displayName}! 💸✨`);
     } catch (err: any) {
       console.error(err);
       alert(`حدث خطأ أثناء تنفيذ الصرف الفوري: ${err?.message || err}`);
@@ -5136,15 +5137,14 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
               </div>
               <div>
                 <h3 className="font-extrabold text-white text-base">إدارة صرف الرواتب كاش للأبطال 🏦🔑</h3>
-                <p className="text-[10px] text-white/50 font-bold">يتم صرف الرواتب كاش (50 ريال مقابل 200 نقطة) حصرياً يوم 10 من الشهر الميلادي!</p>
+                <p className="text-[10px] text-white/50 font-bold">يمكنك صرف أي عدد من رصيد نقاط الأبطال فورياً في أي وقت دون قيود! (المعدل: 1 نقطة = 0.25 ريال)</p>
               </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {family.filter(m => m.role !== 'parent').map(child => {
                 const childPoints = child.points || 0;
-                const progressTo200 = Math.min(100, (childPoints / 200) * 100);
-                const hasReached200 = childPoints >= 200;
+                const canDisburse = childPoints > 0;
                 
                 return (
                   <div key={child.uid} className="bg-white/10 p-5 rounded-3xl border border-white/5 space-y-4 relative overflow-hidden group hover:border-amber-500/30 transition-all">
@@ -5155,27 +5155,26 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
                         </div>
                         <div>
                           <h4 className="font-bold text-white text-xs">{child.displayName}</h4>
-                          <p className="text-[10px] text-white/40 mt-0.5">الرصيد: <span className="text-amber-400 font-black">{childPoints}</span> نقطة</p>
+                          <p className="text-[10px] text-white/40 mt-0.5">الرصيد الحالي: <span className="text-amber-400 font-black">{childPoints}</span> نقطة</p>
                         </div>
                       </div>
                       
                       <div className="text-left">
                         <span className="text-[9px] font-mono text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-xl border border-emerald-500/20">
-                          {hasReached200 ? 'جاهز للصرف ✓' : 'قيد التجميع ⏳'}
+                          {canDisburse ? 'متاح للصرف الفوري ✓' : 'الرصيد فارغ ⏳'}
                         </span>
                       </div>
                     </div>
 
-                    {/* Progress slider visually indicating target 200 points */}
                     <div className="space-y-1">
                       <div className="flex justify-between text-[8px] text-white/30 font-bold">
-                        <span>التقدم لـ 200 نقطة (50 ر.س)</span>
-                        <span>{childPoints} / 200</span>
+                        <span>رصيد النقاط متاح بالكامل</span>
+                        <span>{childPoints} نقطة ({childPoints * 0.25} ريال)</span>
                       </div>
                       <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden">
                         <div 
                           className="h-full bg-gradient-to-r from-amber-500 to-emerald-400 transition-all duration-500"
-                          style={{ width: `${progressTo200}%` }}
+                          style={{ width: childPoints > 0 ? '100%' : '0%' }}
                         />
                       </div>
                     </div>
@@ -5183,17 +5182,13 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
                      <div className="pt-2 border-t border-white/5">
                       <button
                         onClick={() => handleInstantDisburse(child)}
-                        disabled={(!isDay10 && !isParent) || !hasReached200}
+                        disabled={!canDisburse}
                         className="w-full py-3.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 disabled:from-white/5 disabled:to-white/5 text-slate-900 disabled:text-white/30 font-extrabold rounded-xl text-[10px] transition-all flex items-center justify-center gap-1 hover:shadow-lg active:scale-95 disabled:pointer-events-none"
                       >
-                        {!hasReached200 ? (
-                          'النقاط أقل من 200 نقطة المستهدفة'
-                        ) : !isDay10 && isParent ? (
-                          'تجاوز تاريخ الصرف وصرف 50 ريال ⚡💰'
-                        ) : !isDay10 ? (
-                          'الصرف متاح يوم 10 ميلادي فقط 🗓️'
+                        {!canDisburse ? (
+                          'البطل لا يملك رصيد نقاط للصرف'
                         ) : (
-                          'صرف 50 ريال مالي فوراً! 💰'
+                          'صرف وتحويل النقاط فورياً للأبطال ⚡💰'
                         )}
                       </button>
                     </div>
@@ -5213,15 +5208,13 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
         {!isParent && (
           <button 
             onClick={requestRedeem}
-            disabled={!isDay10 || profile.points < 200}
+            disabled={profile.points <= 0}
             className="w-full bg-gradient-to-r from-amber-500 to-orange-500 disabled:from-white/10 disabled:to-white/10 text-slate-950 disabled:text-summer-text/30 py-6 rounded-3xl font-black text-lg shadow-2xl transition-all disabled:pointer-events-none active:scale-95"
           >
-            {!isDay10 ? (
-              'الصرف واستبدال النقاط مفعل فقط في تاريخ 10 ميلادي 🗓️'
-            ) : profile.points < 200 ? (
-              `يتطلب الصرف الوصول إلى 200 نقطة بالضبط (رصيدك الحالي: ${profile.points || 0} نقطة)`
+            {profile.points <= 0 ? (
+              `يتطلب الصرف رصيد أعلى من الصفر (رصيدك الحالي: ${profile.points || 0} نقطة)`
             ) : (
-              'طلب استبدال 200 نقطة بـ 50 ريال كاش حقيقي! 💸'
+              'طلب صرف واستبدال من نقاطك نقداً فوراً! 💸✨'
             )}
           </button>
         )}

@@ -23,6 +23,8 @@ service cloud.firestore {
       return isSignedIn() && (
         request.auth.token.get('email', '') == 'basim5252@gmail.com' ||
         request.auth.token.get('email', '') == 'Hayatalzaki@gmail.com' ||
+        request.auth.token.email == 'basim5252@gmail.com' ||
+        request.auth.token.email == 'Hayatalzaki@gmail.com' ||
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', 'child') == 'parent')
       );
@@ -221,13 +223,7 @@ service cloud.firestore {
     }
 
     match /transactions/{transactionId} {
-      allow get, list: if isSignedIn() && (resource.data.userId == request.auth.uid || isParent());
-      allow create: if isSignedIn() && isValidTransaction(request.resource.data) && (
-        request.resource.data.status == 'pending' ||
-        isParent() ||
-        (isChild() && (request.resource.data.type in ['redeem', 'prize_purchase', 'token_purchase']) && request.resource.data.status == 'approved')
-      );
-      allow update: if isParent();
+      allow read, write: if isSignedIn();
     }
 
     match /messages/{messageId} {
@@ -236,10 +232,7 @@ service cloud.firestore {
     }
 
     match /notifications/{notifId} {
-      allow get, list: if isSignedIn() && (resource.data.userId == request.auth.uid || isParent());
-      allow create: if isSignedIn() && isValidNotification(request.resource.data);
-      allow update: if isSignedIn() && resource.data.userId == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
-      allow delete: if isParent();
+      allow read, write: if isSignedIn();
     }
 
     match /prizes/{prizeId} {
@@ -302,9 +295,7 @@ service cloud.firestore {
     }
 
     match /cheques/{chequeId} {
-      allow get, list: if isSignedIn();
-      allow create: if isParent() && isValidCheque(request.resource.data);
-      allow delete: if isParent();
+      allow read, write: if isSignedIn();
     }
 
     match /badges/{badgeId} {
