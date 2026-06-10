@@ -63,7 +63,7 @@ service cloud.firestore {
 
     function isValidTransaction(data) {
       return data.keys().hasAll(['userId', 'type', 'status'])
-        && data.userId == request.auth.uid
+        && (data.userId == request.auth.uid || isParent())
         && data.type in ['earn', 'redeem', 'prize_purchase', 'token_purchase']
         && (!data.keys().contains('points') || (isNumeric(data.points) && data.points >= 0))
         && (!data.keys().contains('tokensSpent') || (isNumeric(data.tokensSpent) && data.tokensSpent >= 0));
@@ -224,6 +224,7 @@ service cloud.firestore {
       allow get, list: if isSignedIn() && (resource.data.userId == request.auth.uid || isParent());
       allow create: if isSignedIn() && isValidTransaction(request.resource.data) && (
         request.resource.data.status == 'pending' ||
+        isParent() ||
         (isChild() && (request.resource.data.type in ['redeem', 'prize_purchase', 'token_purchase']) && request.resource.data.status == 'approved')
       );
       allow update: if isParent();

@@ -548,10 +548,12 @@ export const DevelopmentPlansPage = ({ profile }: { profile: UserProfile | null 
                           <Calendar size={10} /> تم إقفال المسار بنجاح ومثالية!
                         </span>
                         <span>
-                          {typeof plan.completedAt === 'string' 
-                            ? new Date(plan.completedAt).toLocaleDateString('ar-EG')
-                            : plan.completedAt.toDate?.()?.toLocaleDateString('ar-EG') || ''
-                          }
+                          {(() => {
+                            if (!plan.completedAt) return new Date().toLocaleDateString('ar-EG');
+                            if (typeof plan.completedAt.toDate === 'function') return plan.completedAt.toDate().toLocaleDateString('ar-EG');
+                            if (plan.completedAt.seconds) return new Date(plan.completedAt.seconds * 1000).toLocaleDateString('ar-EG');
+                            return new Date(plan.completedAt).toLocaleDateString('ar-EG');
+                          })()}
                         </span>
                       </div>
                     )}

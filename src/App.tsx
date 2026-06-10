@@ -4610,7 +4610,12 @@ const ChequeCard = ({ cheque, onClose }: { cheque: Cheque; onClose: () => void }
             <p className="text-[10px] text-[#a08b70] font-bold">SMART FAMILY BANK</p>
           </div>
           <div className="text-left space-y-1">
-             <p className="text-[10px] text-[#a08b70] font-bold">DATE: {cheque.issuedAt?.toDate?.()?.toLocaleDateString('ar-EG')}</p>
+             <p className="text-[10px] text-[#a08b70] font-bold">DATE: {(() => {
+               if (!cheque.issuedAt) return new Date().toLocaleDateString('ar-EG');
+               if (typeof cheque.issuedAt.toDate === 'function') return cheque.issuedAt.toDate().toLocaleDateString('ar-EG');
+               if (cheque.issuedAt.seconds) return new Date(cheque.issuedAt.seconds * 1000).toLocaleDateString('ar-EG');
+               return new Date(cheque.issuedAt).toLocaleDateString('ar-EG');
+             })()}</p>
              <p className="text-[10px] text-[#a08b70] font-bold">NO: {cheque.serialNumber}</p>
           </div>
         </div>
