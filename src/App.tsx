@@ -4912,9 +4912,9 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
       );
 
       alert(`بنجاح! تم تفعيل وصرف الشيك برقم (${serial}) بمبلغ 50 ريال للبطل ${child.displayName}! 💸✨`);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert('حدث خطأ أثناء تنفيذ الصرف الفوري، يرجى المحاولة لاحقاً.');
+      alert(`حدث خطأ أثناء تنفيذ الصرف الفوري: ${err?.message || err}`);
     }
   };
 
