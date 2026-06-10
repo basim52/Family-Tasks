@@ -4604,6 +4604,13 @@ const ChequeCard = ({ cheque, onClose }: { cheque: Cheque; onClose: () => void }
            </div>
         </div>
 
+        {/* Warm Dedication */}
+        <div className="text-center py-3.5 bg-amber-500/5 rounded-2xl border border-dashed border-amber-500/20 px-4">
+           <p className="text-xs font-black text-[#8b7355] tracking-wide">
+             ✨ شكرا لانكم مميزين ونفذتم المهام بحب ✨
+           </p>
+        </div>
+
         {/* Footer */}
         <div className="flex justify-between items-center pt-8">
            <div className="relative">
@@ -4641,6 +4648,8 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
   const [selectedCheque, setSelectedCheque] = useState<Cheque | null>(null);
   const [redeemError, setRedeemError] = useState<string | null>(null);
   const [bulkProcessing, setBulkProcessing] = useState(false);
+  const [family, setFamily] = useState<UserProfile[]>([]);
+  const [disbursePoints, setDisbursePoints] = useState<{ [userId: string]: string }>({});
   const isParent = profile.role === 'parent';
 
   // Monthly stats for redemption
@@ -4667,23 +4676,39 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
       handleFirestoreError(error, OperationType.LIST, 'transactions');
     });
 
-    return () => unsubTr();
+    let unsubUsers: (() => void) | undefined;
+    if (isParent) {
+      unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
+        setFamily(snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile)));
+      }, (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'users');
+      });
+    }
+
+    return () => {
+      unsubTr();
+      if (unsubUsers) unsubUsers();
+    };
   }, [profile.uid, isParent]);
 
   const requestRedeem = async () => {
-    if (profile.points < 100) {
-      alert('يجب أن تملك 100 نقطة على الأقل لطلب الصرف');
+    if (!isDay10) {
+      alert('عذراً، طلب الصرف واستبدال النقاط متاح ومفعل فقط في يوم 10 من كل شهر ميلادي! 🗓️');
+      return;
+    }
+
+    if (profile.points < 200) {
+      alert(`عذراً، يمكنك استبدال النقاط فقط عند الوصول إلى 200 نقطة بالتمام (رصيدك الحالي: ${profile.points} نقطة).`);
       return;
     }
 
     if (pointsRedeemedThisMonth >= 200) {
-      alert('نعتذر، لقد وصلت للحد الأقصى للصرف هذا الشهر (200 نقطة)');
+      alert('نعتذر، لقد قمت بصرف الحد الأقصى المسموح به لهذا الشهر وهو 200 نقطة (50 ريال).');
       return;
     }
 
-    // Only allow redeeming up to what's left of the 200 point limit
-    const pointsToRedeem = Math.min(profile.points, remainingMonthlyPoints);
-    const sarAmount = Math.floor(pointsToRedeem * 0.25);
+    const pointsToRedeem = 200;
+    const sarAmount = 50;
 
     await addDoc(collection(db, 'transactions'), {
       userId: profile.uid,
@@ -4695,11 +4720,7 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
       requestedAt: serverTimestamp(),
     });
 
-    if (pointsToRedeem < profile.points) {
-      alert(`سيتم صرف ${pointsToRedeem} نقطة فقط لتجاوزك الحد الشهري. المتبقي في رصيدك: ${profile.points - pointsToRedeem} نقطة.`);
-    } else {
-      alert('تم إرسال طلب الصرف بنجاح! 🚀');
-    }
+    alert('تم إرسال طلب الصرف بنجاح! سيقوم الأهل بتأكيد عملية تحويل كاش 50 ريال لك فوراً! 🚀🏦');
   };
 
   const approveRedeem = async (request: any) => {
@@ -4795,6 +4816,65 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
       alert('حدث خطأ أثناء الصرف الجماعي، يرجى التكرار لاحقاً.');
     } finally {
       setBulkProcessing(false);
+    }
+  };
+
+  const handleInstantDisburse = async (child: any) => {
+    if (!isDay10) {
+      alert('عذراً! الصرف وتحويل الكاش وتفعيل الرواتب متاح فقط يوم 10 من كل شهر ميلادي 🗓️');
+      return;
+    }
+
+    if ((child.points || 0) < 200) {
+      alert(`البطل ${child.displayName} لم يصل إلى 200 نقطة بعد (رصيده الحالي: ${child.points || 0} نقطة). يجب الوصول إلى 200 نقطة بالتمام لتمكين استبدالها بصرف مالي!`);
+      return;
+    }
+
+    const pAmt = 200; // Exchange exactly 200 points for 50 SAR
+
+    const confirmAction = window.confirm(`هل أنت متأكد من صرف 200 نقطة فورياً للبطل ${child.displayName} وتحويلها لشيك مالي بقيمة 50 ر.س؟`);
+    if (!confirmAction) return;
+
+    try {
+      const transactionRef = await addDoc(collection(db, 'transactions'), {
+        userId: child.uid,
+        userName: child.displayName || 'بطل عائلي',
+        type: 'redeem',
+        points: pAmt,
+        currencyAmount: 50,
+        status: 'approved',
+        requestedAt: serverTimestamp(),
+        processedAt: serverTimestamp()
+      });
+
+      await updateDoc(doc(db, 'users', child.uid), {
+        points: increment(-pAmt)
+      });
+
+      const serial = `CHQ-${Math.floor(Math.random() * 900000 + 100000)}`;
+      await addDoc(collection(db, 'cheques'), {
+        transactionId: transactionRef.id,
+        userId: child.uid,
+        userName: child.displayName || 'بطل عائلي',
+        amount: 50,
+        currency: 'ر.س',
+        issuedAt: serverTimestamp(),
+        issuedBy: profile.uid,
+        issuedByName: profile.displayName || 'الأهل',
+        serialNumber: serial
+      });
+
+      await sendNotification(
+        child.uid, 
+        'صرف نقدي فوري! 🏦💰', 
+        `لقد قام الأهل بصرف 200 نقطة لك فورياً واستلام شيك بمبلغ 50 ريال! مبارك!`, 
+        'success'
+      );
+
+      alert(`بنجاح! تم تفعيل وصرف الشيك برقم (${serial}) بمبلغ 50 ريال للبطل ${child.displayName}! 💸✨`);
+    } catch (err) {
+      console.error(err);
+      alert('حدث خطأ أثناء تنفيذ الصرف الفوري، يرجى المحاولة لاحقاً.');
     }
   };
 
@@ -4894,12 +4974,99 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
           </div>
         )}
 
-        {!isParent && profile.points >= 100 && (
+        {isParent && (
+          <div className="bg-gradient-to-br from-indigo-900/40 via-purple-900/30 to-slate-900/40 p-6 rounded-[2.5rem] border border-white/10 space-y-6 shadow-2xl">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-gradient-to-br from-amber-400 to-orange-500 rounded-3xl flex items-center justify-center text-slate-900 shadow-md">
+                <WalletIcon size={24} />
+              </div>
+              <div>
+                <h3 className="font-extrabold text-white text-base">إدارة صرف الرواتب كاش للأبطال 🏦🔑</h3>
+                <p className="text-[10px] text-white/50 font-bold">يتم صرف الرواتب كاش (50 ريال مقابل 200 نقطة) حصرياً يوم 10 من الشهر الميلادي!</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {family.filter(m => m.role !== 'parent').map(child => {
+                const childPoints = child.points || 0;
+                const progressTo200 = Math.min(100, (childPoints / 200) * 100);
+                const hasReached200 = childPoints >= 200;
+                
+                return (
+                  <div key={child.uid} className="bg-white/10 p-5 rounded-3xl border border-white/5 space-y-4 relative overflow-hidden group hover:border-amber-500/30 transition-all">
+                    <div className="flex justify-between items-start">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-2xl bg-amber-500/20 flex items-center justify-center text-amber-300 font-black text-sm">
+                          {child.displayName?.charAt(0) || '👑'}
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-white text-xs">{child.displayName}</h4>
+                          <p className="text-[10px] text-white/40 mt-0.5">الرصيد: <span className="text-amber-400 font-black">{childPoints}</span> نقطة</p>
+                        </div>
+                      </div>
+                      
+                      <div className="text-left">
+                        <span className="text-[9px] font-mono text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-xl border border-emerald-500/20">
+                          {hasReached200 ? 'جاهز للصرف ✓' : 'قيد التجميع ⏳'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Progress slider visually indicating target 200 points */}
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-[8px] text-white/30 font-bold">
+                        <span>التقدم لـ 200 نقطة (50 ر.س)</span>
+                        <span>{childPoints} / 200</span>
+                      </div>
+                      <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-gradient-to-r from-amber-500 to-emerald-400 transition-all duration-500"
+                          style={{ width: `${progressTo200}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-white/5">
+                      <button
+                        onClick={() => handleInstantDisburse(child)}
+                        disabled={!isDay10 || !hasReached200}
+                        className="w-full py-3.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 disabled:from-white/5 disabled:to-white/5 text-slate-900 disabled:text-white/30 font-extrabold rounded-xl text-[10px] transition-all flex items-center justify-center gap-1 hover:shadow-lg active:scale-95 disabled:pointer-events-none"
+                      >
+                        {!isDay10 ? (
+                          'الصرف متاح يوم 10 ميلادي فقط 🗓️'
+                        ) : !hasReached200 ? (
+                          'النقاط أقل من 200 نقطة المستهدفة'
+                        ) : (
+                          'صرف 50 ريال مالي فوراً! 💰'
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+              
+              {family.filter(m => m.role !== 'parent').length === 0 && (
+                <div className="col-span-full text-center py-6 text-white/20 font-black text-xs">
+                  لا يوجد أبطال مسجلين في العائلة حالياً!
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {!isParent && (
           <button 
             onClick={requestRedeem}
-            className="w-full summer-gradient text-white py-6 rounded-3xl font-black text-xl shadow-2xl shadow-summer-accent/20 transform hover:scale-[1.02] active:scale-95 transition-all"
+            disabled={!isDay10 || profile.points < 200}
+            className="w-full bg-gradient-to-r from-amber-500 to-orange-500 disabled:from-white/10 disabled:to-white/10 text-slate-950 disabled:text-summer-text/30 py-6 rounded-3xl font-black text-lg shadow-2xl transition-all disabled:pointer-events-none active:scale-95"
           >
-            طلب تحويل النقاط إلى كاش!
+            {!isDay10 ? (
+              'الصرف واستبدال النقاط مفعل فقط في تاريخ 10 ميلادي 🗓️'
+            ) : profile.points < 200 ? (
+              `يتطلب الصرف الوصول إلى 200 نقطة بالضبط (رصيدك الحالي: ${profile.points || 0} نقطة)`
+            ) : (
+              'طلب استبدال 200 نقطة بـ 50 ريال كاش حقيقي! 💸'
+            )}
           </button>
         )}
 
