@@ -4727,8 +4727,8 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
 
   const requestRedeem = async () => {
     if (!isDay10) {
-      alert('عذراً، طلب الصرف واستبدال النقاط متاح ومفعل فقط في يوم 10 من كل شهر ميلادي! 🗓️');
-      return;
+      const confirmBypass = window.confirm('تنبيه: يوم الصرف الرسمي والمحدد للرواتب هو يوم 10 من كل شهر ميلادي. هل تود إرسال طلب صرف استثنائي للأهل لمراجعته وتفعيله لك حالياً؟ 📬⏳');
+      if (!confirmBypass) return;
     }
 
     if (profile.points < 200) {
@@ -4746,7 +4746,7 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
 
     await addDoc(collection(db, 'transactions'), {
       userId: profile.uid,
-      userName: profile.displayName,
+      userName: profile.displayName || 'بطل عائلي',
       type: 'redeem',
       points: pointsToRedeem,
       currencyAmount: sarAmount,
@@ -4759,30 +4759,33 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
 
   const approveRedeem = async (request: any) => {
     try {
+      const pointsToSubtract = Number(request.points) || 200;
+      const currencyAmt = Number(request.currencyAmount) || 50;
+
       // 1. Mark status
       await updateDoc(doc(db, 'transactions', request.id), { status: 'approved', processedAt: serverTimestamp() });
       
       // 2. Subtract points from profile
-      await updateDoc(doc(db, 'users', request.userId), { points: increment(-request.points) });
+      await updateDoc(doc(db, 'users', request.userId), { points: increment(-pointsToSubtract) });
       
       // 3. Create Cheque
       const serial = `CHQ-${Math.floor(Math.random() * 900000 + 100000)}`;
       const chequeData = {
         transactionId: request.id,
         userId: request.userId,
-        userName: request.userName,
-        amount: request.currencyAmount,
+        userName: request.userName || 'بطل عائلي',
+        amount: currencyAmt,
         currency: 'ر.س',
         issuedAt: serverTimestamp(),
         issuedBy: profile.uid,
-        issuedByName: profile.displayName,
+        issuedByName: profile.displayName || 'الأهل',
         serialNumber: serial
       };
       
       await addDoc(collection(db, 'cheques'), chequeData);
       
       // 4. Notify Child
-      await sendNotification(request.userId, 'تم استلام الشيك! ✍️', `لقد تمت الموافقة على طلب الصرف. تفضل الشيك الخاص بك بمبلغ ${request.currencyAmount} ريال.`, 'success');
+      await sendNotification(request.userId, 'تم استلام الشيك! ✍️', `لقد تمت الموافقة على طلب الصرف. تفضل الشيك الخاص بك بمبلغ ${currencyAmt} ريال.`, 'success');
       
       alert(`تمت الموافقة! رقم الشيك: ${serial}`);
     } catch (err) {
@@ -4807,29 +4810,32 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
     let approvedCount = 0;
     try {
       for (const req of pendingRequests) {
+        const pointsToSubtract = Number(req.points) || 200;
+        const currencyAmt = Number(req.currencyAmount) || 50;
+
         // 1. Mark status
         await updateDoc(doc(db, 'transactions', req.id), { status: 'approved', processedAt: serverTimestamp() });
         
         // 2. Subtract points from profile
-        await updateDoc(doc(db, 'users', req.userId), { points: increment(-req.points) });
+        await updateDoc(doc(db, 'users', req.userId), { points: increment(-pointsToSubtract) });
         
         // 3. Create Cheque
         const serial = `CHQ-${Math.floor(Math.random() * 900000 + 100000)}`;
         const chequeData = {
           transactionId: req.id,
           userId: req.userId,
-          userName: req.userName,
-          amount: req.currencyAmount,
+          userName: req.userName || 'بطل عائلي',
+          amount: currencyAmt,
           currency: 'ر.س',
           issuedAt: serverTimestamp(),
           issuedBy: profile.uid,
-          issuedByName: profile.displayName,
+          issuedByName: profile.displayName || 'الأهل',
           serialNumber: serial
         };
         await addDoc(collection(db, 'cheques'), chequeData);
         
         // 4. Notify Child
-        await sendNotification(req.userId, 'تم تفعيل رواتب اليوم 10! ✍️🎉', `لقد تمت الموافقة الفورية لليوم 10. تفضل الشيك بمبلغ ${req.currencyAmount} ريال.`, 'success');
+        await sendNotification(req.userId, 'تم تفعيل رواتب اليوم 10! ✍️🎉', `لقد تمت الموافقة الفورية لليوم 10. تفضل الشيك بمبلغ ${currencyAmt} ريال.`, 'success');
         
         approvedCount++;
       }
@@ -4855,12 +4861,12 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
 
   const handleInstantDisburse = async (child: any) => {
     if (!isDay10) {
-      alert('عذراً! الصرف وتحويل الكاش وتفعيل الرواتب متاح فقط يوم 10 من كل شهر ميلادي 🗓️');
-      return;
+      const confirmBypass = window.confirm('تنبيه: اليوم ليس 10 من الشهر (يوم صرف الرواتب المعتاد). هل تريد الاستمرار بصفتك ولي الأمر وتجاوز هذا الشرط لتفويض وصرف المبلغ فوراً حالياً؟ 🏦💰');
+      if (!confirmBypass) return;
     }
 
     if ((child.points || 0) < 200) {
-      alert(`البطل ${child.displayName} لم يصل إلى 200 نقطة بعد (رصيده الحالي: ${child.points || 0} نقطة). يجب الوصول إلى 200 نقطة بالتمام لتمكين استبدالها بصرف مالي!`);
+      alert(`البطل ${child.displayName} لم يصل إلى 200 نقطة بعد (رصيده الحالي: ${child.points || 0} نقطة). يجب الوصول إلى 200 نقطة لتمكين استبدالها بصرف مالي!`);
       return;
     }
 
