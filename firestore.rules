@@ -322,5 +322,13 @@ service cloud.firestore {
       allow read: if isParent();
       allow create: if isSignedIn() && isValidSpinLog(request.resource.data);
     }
+
+    match /dailyTasks/{taskId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isParent());
+      allow create: if isSignedIn() && (request.resource.data.userId == request.auth.uid || isParent());
+      allow update: if isSignedIn() && (resource.data.userId == request.auth.uid || isParent());
+      allow delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isParent());
+    }
   }
 }

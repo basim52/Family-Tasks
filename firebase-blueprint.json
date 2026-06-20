@@ -246,6 +246,24 @@
         "completedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["title", "assignedTo", "assignedToName", "creatorId", "rewardCoins", "status", "milestones", "createdAt"]
+    },
+    "DailyTask": {
+      "title": "Daily Task",
+      "description": "A personal self-organized daily task with time, date and tick-mark completion",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "endTime": { "type": "string" },
+        "points": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "completed", "expired"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "completedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "userId", "date", "time", "endTime", "status", "createdAt"]
     }
   },
   "firestore": {
@@ -316,6 +334,10 @@
     "developmentPlans": {
       "schema": "DevelopmentPlan",
       "description": "Custom educational and behavior growth roadmaps built by parents for children"
+    },
+    "dailyTasks": {
+      "schema": "DailyTask",
+      "description": "Self-authored daily tasks"
     }
   }
 }

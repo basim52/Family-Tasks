@@ -219,3 +219,18 @@ export interface DevelopmentPlan {
   createdAt: any;
   completedAt?: any;
 }
+
+export interface DailyTask {
+  id: string;
+  title: string;
+  userId: string;
+  userName: string;
+  date: string;
+  time: string;
+  endTime: string;
+  points: number;
+  status: 'pending' | 'completed' | 'expired';
+  createdAt: any;
+  completedAt?: any;
+}
+

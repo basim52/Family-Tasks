@@ -79,7 +79,8 @@ import { TaskImageGenerator } from './components/TaskImageGenerator';
 import { FamilyPerformanceChart } from './components/FamilyPerformanceChart';
 import { FamilyGame } from './components/FamilyGame';
 import { DevelopmentPlansPage } from './components/DevelopmentPlansPage';
-import { Play, Pause, Loader2 } from 'lucide-react';
+import DailyTasksPage from './components/DailyTasksPage';
+import { Play, Pause, Loader2, Calendar } from 'lucide-react';
 import { 
   collection, 
   query, 
@@ -243,6 +244,7 @@ const Navbar = ({ profile }: { profile: UserProfile | null }) => {
   const navItems = [
     { path: '/', icon: Home, label: 'لوحة التحكم' },
     { path: '/tasks', icon: CheckSquare, label: 'المهام' },
+    { path: '/daily-tasks', icon: Calendar, label: 'مهامي اليومية' },
     { path: '/family-game', icon: Gamepad2, label: 'الألعاب' },
     { path: '/chat', icon: MessageCircle, label: 'الدردشة' },
     { path: '/wallet', icon: WalletIcon, label: 'المحفظة' },
@@ -1726,6 +1728,15 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
                   <p className="text-[10px] text-summer-text/40">مسارات ذكية وضعها والداي لك بالحب للوصول لـ 200 نقطة!</p>
                 </div>
               </Link>
+              <Link to="/daily-tasks" className="bg-summer-card p-6 rounded-3xl border border-white/20 flex items-center gap-4 group shadow-xl hover:border-white/40 transition-all">
+                <div className="w-12 h-12 bg-amber-500 rounded-2xl flex items-center justify-center text-slate-950 group-hover:scale-110 transition-transform">
+                  <Calendar size={24} />
+                </div>
+                <div className="text-right flex-1">
+                  <p className="font-bold text-summer-text text-sm">مخطط المهام اليومية 🗓️💎</p>
+                  <p className="text-[10px] text-summer-text/40">رتب ساعات يومك ونقاط نجاحك واحصد التفوق الفوري بنفسك!</p>
+                </div>
+              </Link>
             </div>
           </section>
         )}
@@ -1778,6 +1789,15 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
                 <div className="text-right">
                   <p className="font-bold text-summer-text text-sm">البوصلة والخطط التطويرية</p>
                   <p className="text-[10px] text-summer-text/40">رسم ومتابعة المسارات التربوية 🎯🌱</p>
+                </div>
+              </Link>
+              <Link to="/daily-tasks" className="bg-summer-card p-6 rounded-3xl border border-white/20 flex items-center gap-4 group shadow-xl hover:border-white/40 transition-all">
+                <div className="w-12 h-12 bg-amber-500 rounded-2xl flex items-center justify-center text-slate-950 group-hover:scale-110 transition-transform">
+                  <Calendar size={24} />
+                </div>
+                <div className="text-right">
+                  <p className="font-bold text-summer-text text-sm">مخطط المهام اليومية</p>
+                  <p className="text-[10px] text-summer-text/40">تنظيم وتقييم يومي 🗓️🔑</p>
                 </div>
               </Link>
             </div>
@@ -7185,6 +7205,7 @@ export default function App() {
             <Route path="/behavior" element={<BehaviorRatingPage profile={profile} />} />
             <Route path="/motivation" element={<MotivationPage profile={profile} />} />
             <Route path="/development-plans" element={<DevelopmentPlansPage profile={profile} />} />
+            <Route path="/daily-tasks" element={<DailyTasksPage profile={profile} />} />
             <Route path="/settings" element={<SettingsPage profile={profile} />} />
             <Route path="/family-game" element={<FamilyGamePage profile={profile} />} />
             <Route path="*" element={<Navigate to="/" />} />
