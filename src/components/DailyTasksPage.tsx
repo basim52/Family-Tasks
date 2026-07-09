@@ -141,6 +141,8 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
   const [notificationPermission, setNotificationPermission] = useState<string>(
     typeof Notification !== 'undefined' ? Notification.permission : 'default'
   );
+  const [editingPhoneUid, setEditingPhoneUid] = useState<string | null>(null);
+  const [phoneInputVal, setPhoneInputVal] = useState('');
 
   const isParent = profile.role === 'parent';
   const weekDays = getDatesForCurrentWeek();
@@ -242,7 +244,34 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
 
     const message = `تنبيه عاجل للبطل 👦 *${task.userName}* ⏰\n\nتوشك فترة مهمتك اليومية *"${task.title}"* ${pointsText} على الانتهاء!\n⏱️ الوقت: *${timeLeftText}*.\n\nأسرع لإنجاز المهمة وتسجيل نجاحك اليومي الباهر وكسب نقاطك الوفيرة! 💪🏆🎉`;
     const encodedText = encodeURIComponent(message);
-    window.open(`https://wa.me/?text=${encodedText}`, '_blank');
+    
+    // Attempt to direct to specific phone number of the assigned child/user
+    const member = familyMembers.find(m => m.uid === task.userId);
+    let targetPhone = member?.phoneNumber || '';
+    
+    // Clean targetPhone - remove '+', '-', spaces, parentheses
+    targetPhone = targetPhone.replace(/[\s\+\-\(\)]/g, '');
+    
+    if (targetPhone) {
+      // Support Saudi numbers conversion: 05xxxxxxxx -> 9665xxxxxxxx
+      if (targetPhone.startsWith('0') && targetPhone.length === 10) {
+        targetPhone = '966' + targetPhone.substring(1);
+      }
+      window.open(`https://wa.me/${targetPhone}?text=${encodedText}`, '_blank');
+    } else {
+      window.open(`https://wa.me/?text=${encodedText}`, '_blank');
+    }
+  };
+
+  const handleUpdatePhoneNumber = async (uid: string, num: string) => {
+    try {
+      await updateDoc(doc(db, 'users', uid), {
+        phoneNumber: num.trim()
+      });
+      setEditingPhoneUid(null);
+    } catch (e) {
+      console.error('Failed to update phone number:', e);
+    }
   };
 
   // Load all family members (both parents and children)
@@ -563,6 +592,90 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
           >
             {notificationPermission === 'granted' ? '✓ تم تفعيل الإشعارات' : '🔔 تفعيل تنبيهات الدفع'}
           </button>
+        </div>
+
+        {/* 📞 Family WhatsApp Contacts Settings */}
+        <div className="bg-slate-900 border border-white/10 p-5 rounded-[2rem] space-y-4 text-right">
+          <div className="flex items-center gap-2.5">
+            <span className="text-lg">💬</span>
+            <div className="space-y-0.5">
+              <h3 className="text-xs font-black text-white">إعدادات أرقام واتساب للتذكير الفوري</h3>
+              <p className="text-[10px] text-brand-text/60">
+                أدخل أرقام الهواتف (بالصيغة الدولية، مثلاً 9665xxxxxxxx) لتبسيط إرسال تنبيهات واتساب المباشرة للأبطال أو الوالدين!
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {familyMembers.map((member) => {
+              const isEditing = editingPhoneUid === member.uid;
+              const hasPermissionToEdit = isParent || member.uid === profile.uid;
+
+              return (
+                <div key={member.uid} className="bg-white/5 border border-white/5 p-3.5 rounded-2xl flex items-center justify-between gap-3 transition-all hover:bg-white/[0.07]">
+                  <div className="flex items-center gap-3">
+                    <img
+                      src={member.photoURL || 'https://api.dicebear.com/7.x/bottts/svg'}
+                      alt={member.displayName}
+                      className="w-8 h-8 rounded-xl object-cover bg-slate-800 border border-white/10"
+                      referrerPolicy="no-referrer"
+                    />
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-xs font-black text-white">{member.displayName}</span>
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full font-bold bg-white/5 border border-white/5 text-brand-text/60">
+                          {member.role === 'parent' ? 'الوالدين 👨‍👩‍👦' : 'البطل 👦'}
+                        </span>
+                      </div>
+                      
+                      {isEditing ? (
+                        <div className="flex items-center gap-1.5 mt-1.5">
+                          <input
+                            type="text"
+                            value={phoneInputVal}
+                            onChange={(e) => setPhoneInputVal(e.target.value)}
+                            placeholder="مثال: 9665xxxxxxxx"
+                            dir="ltr"
+                            className="bg-slate-950 border border-white/10 text-white rounded-lg px-2 py-1 text-xs font-bold outline-none focus:border-emerald-500 w-36 text-center"
+                          />
+                          <button
+                            onClick={() => handleUpdatePhoneNumber(member.uid, phoneInputVal)}
+                            className="p-1.5 bg-emerald-500 text-slate-950 rounded-lg hover:bg-emerald-400 transition-all font-black text-[10px]"
+                            title="حفظ الرقم"
+                          >
+                            ✓
+                          </button>
+                          <button
+                            onClick={() => setEditingPhoneUid(null)}
+                            className="p-1.5 bg-white/5 text-white/50 rounded-lg hover:bg-white/10 transition-all text-[10px]"
+                            title="إلغاء"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="text-[10px] font-mono text-emerald-400 mt-1">
+                          {member.phoneNumber ? `💬 ${member.phoneNumber}` : '⚠️ لم يتم ربط رقم واتساب'}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {!isEditing && hasPermissionToEdit && (
+                    <button
+                      onClick={() => {
+                        setEditingPhoneUid(member.uid);
+                        setPhoneInputVal(member.phoneNumber || '');
+                      }}
+                      className="px-2.5 py-1.5 text-[9px] font-black text-amber-400 bg-amber-400/5 hover:bg-amber-400/10 border border-amber-400/20 rounded-xl transition-all outline-none"
+                    >
+                      {member.phoneNumber ? 'تعديل الرقم ✏️' : 'إضافة رقم ➕'}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         {/* Proximity Alerts (tasks expiring soon in the next hour) */}

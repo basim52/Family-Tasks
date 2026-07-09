@@ -17,6 +17,7 @@ export interface UserProfile {
   theme?: ThemeType;
   customBgColor?: string;
   customAccentColor?: string;
+  phoneNumber?: string; // WhatsApp contact phone number (e.g. +9665xxxxxxxx)
   createdAt: any;
 }
 
