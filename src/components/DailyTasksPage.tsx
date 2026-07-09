@@ -134,6 +134,7 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
   const [newTaskCategory, setNewTaskCategory] = useState<string>('educational');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
+  const [sendWhatsAppOnCreate, setSendWhatsAppOnCreate] = useState(false);
 
   // Notification & WhatsApp Proximity States
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -217,6 +218,36 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
       }
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const handleSendWhatsAppNewTask = (
+    taskTitle: string,
+    taskPoints: number,
+    targetUserId: string,
+    taskTime: string,
+    taskEndTime: string
+  ) => {
+    const pointsText = taskPoints > 0 ? ` (+${taskPoints} نقاط)` : '';
+    const formattedStartTime = formatArabicTime(taskTime);
+    const formattedEndTime = formatArabicTime(taskEndTime);
+    
+    const member = familyMembers.find(m => m.uid === targetUserId);
+    const name = member?.displayName || 'البطل الباسل';
+    
+    const message = `مهمة جديدة للبطل 👦 *${name}* 🌟\n\nلقد أضفت لك مهمة جديدة: *"${taskTitle}"* ${pointsText}\n⏱️ الوقت: من *${formattedStartTime}* إلى *${formattedEndTime}*.\n\nاستعد لإنجازها وكسب نقاطك الوفيرة! 💪🏆🎉`;
+    const encodedText = encodeURIComponent(message);
+    
+    let targetPhone = member?.phoneNumber || '';
+    targetPhone = targetPhone.replace(/[\s\+\-\(\)]/g, '');
+    
+    if (targetPhone) {
+      if (targetPhone.startsWith('0') && targetPhone.length === 10) {
+        targetPhone = '966' + targetPhone.substring(1);
+      }
+      window.open(`https://wa.me/${targetPhone}?text=${encodedText}`, '_blank');
+    } else {
+      window.open(`https://wa.me/?text=${encodedText}`, '_blank');
     }
   };
 
@@ -394,6 +425,17 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
           read: false,
           createdAt: serverTimestamp()
         });
+      }
+
+      // Check if WhatsApp notification is enabled
+      if (sendWhatsAppOnCreate) {
+        handleSendWhatsAppNewTask(
+          newTaskTitle.trim(),
+          Number(newTaskPoints) || 0,
+          taskUserId,
+          newTaskTime,
+          newTaskEndTime
+        );
       }
 
       setNewTaskTitle('');
@@ -909,6 +951,29 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
               </div>
             </div>
 
+            <div className={`flex items-center justify-between px-4 py-3.5 rounded-2xl border transition-all duration-300 ${
+              sendWhatsAppOnCreate 
+                ? 'bg-emerald-500/15 border-emerald-500/40 shadow-lg shadow-emerald-500/5' 
+                : 'bg-white/5 border-white/10 hover:bg-white/[0.07]'
+            }`}>
+              <div className="flex items-center gap-2.5">
+                <span className="text-xl">🟢</span>
+                <div className="flex flex-col text-right">
+                  <span className="text-xs font-black text-white">إرسال تنبيه واتساب فوري 💬</span>
+                  <span className="text-[10px] font-bold text-emerald-400">سيتم فتح الواتساب فوراً لمشاركة المهمة الجديدة</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSendWhatsAppOnCreate(!sendWhatsAppOnCreate)}
+                className={`w-12 h-7 rounded-full p-1 transition-all duration-200 focus:outline-none flex ${
+                  sendWhatsAppOnCreate ? 'bg-emerald-500 justify-end' : 'bg-white/10 justify-start'
+                }`}
+              >
+                <div className="w-5 h-5 rounded-full bg-white shadow-md" />
+              </button>
+            </div>
+
             {formError && (
               <p className="text-[10px] text-red-400 bg-red-400/5 px-2.5 py-1.5 rounded-lg border border-red-400/10 font-bold text-right flex items-center gap-1">
                 <AlertCircle size={12} />
@@ -1232,10 +1297,10 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
                       {!isCompleted && !isExpired && (
                         <button
                           onClick={() => handleSendWhatsAppReminder(task)}
-                          className="p-2 text-emerald-500 hover:text-emerald-400 hover:bg-emerald-500/10 rounded-xl transition-all outline-none"
+                          className="px-3 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-[10px] font-black flex items-center gap-1 transition-all outline-none"
                           title="إرسال تذكير واتساب"
                         >
-                          💬
+                          💬 تذكير واتساب
                         </button>
                       )}
 

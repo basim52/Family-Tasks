@@ -102,7 +102,7 @@ export const Landing: React.FC = () => {
             <div className="flex items-center gap-4 px-6 py-4 bg-white/20 backdrop-blur rounded-3xl border border-white/40">
                <div className="flex -space-x-3 rtl:space-x-reverse">
                  {[1,2,3].map(i => (
-                   <div key={i} className="w-10 h-10 rounded-full border-2 border-white bg-summer-card" />
+                   <img key={i} src={`https://api.dicebear.com/7.x/adventurer/svg?seed=family${i}`} alt="avatar" className="w-10 h-10 rounded-full border-2 border-white bg-summer-card" />
                  ))}
                </div>
                <p className="text-xs font-bold text-summer-text/60 leading-tight">انضم إلى +500 <br /> عائلة ذكية</p>

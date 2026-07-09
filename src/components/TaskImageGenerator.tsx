@@ -35,7 +35,11 @@ export const TaskImageGenerator: React.FC<Props> = ({ task, pointsValue }) => {
         link.href = dataUrl;
         link.click();
       }
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.name === 'AbortError' || err?.message?.includes('canceled') || err?.message?.includes('cancelled')) {
+        console.log('User cancelled the share action.');
+        return;
+      }
       console.error('Error generating image:', err);
     }
   };

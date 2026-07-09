@@ -3177,6 +3177,7 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
   const [newRecurrence, setNewRecurrence] = useState<'none' | 'daily' | 'weekly' | 'monthly'>('none');
   const [editRecurrence, setEditRecurrence] = useState<'none' | 'daily' | 'weekly' | 'monthly'>('none');
   const [showComments, setShowComments] = useState<string | null>(null);
+  const [sendWhatsAppOnCreate, setSendWhatsAppOnCreate] = useState(false);
 
   const [showArchive, setShowArchive] = useState(false);
   const [transferingTask, setTransferingTask] = useState<Task | null>(null);
@@ -3308,6 +3309,77 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
   const archivedTasks = tasks.filter(t => t.status === 'approved' || t.status === 'expired');
   const displayTasks = showArchive ? archivedTasks : activeTasks;
 
+  const handleSendWhatsAppNewTask = (
+    taskTitle: string,
+    taskPoints: number,
+    rewardType: string,
+    targetUserId: string,
+    startTime: string,
+    endTime: string
+  ) => {
+    const rewardUnit = rewardType === 'tokens' ? 'توكن نادرة' : 'نقاط';
+    const pointsText = taskPoints > 0 ? ` (+${taskPoints} ${rewardUnit})` : '';
+    
+    let timeText = '';
+    if (startTime || endTime) {
+      const startFormatted = startTime ? new Date(startTime).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }) : '';
+      const endFormatted = endTime ? new Date(endTime).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }) : '';
+      if (startFormatted && endFormatted) {
+        timeText = `\n⏱️ الوقت: من *${startFormatted}* إلى *${endFormatted}*.`;
+      } else if (endFormatted) {
+        timeText = `\n⏱️ وقت الانتهاء: *${endFormatted}*.`;
+      }
+    }
+
+    const member = family.find(m => m.uid === targetUserId);
+    const name = member?.displayName || 'الجميع 👦👧';
+    
+    const message = `مهمة جديدة للبطل 🌟 *${name}* 🌟\n\nلقد تم تكليفك بمهمة جديدة: *"${taskTitle}"* ${pointsText}.${timeText}\n\nاستعد لإنجازها لتنال مكافأتك الجميلة! 💪🏆🚀`;
+    const encodedText = encodeURIComponent(message);
+    
+    let targetPhone = member?.phoneNumber || '';
+    targetPhone = targetPhone.replace(/[\s\+\-\(\)]/g, '');
+    
+    if (targetPhone) {
+      if (targetPhone.startsWith('0') && targetPhone.length === 10) {
+        targetPhone = '966' + targetPhone.substring(1);
+      }
+      window.open(`https://wa.me/${targetPhone}?text=${encodedText}`, '_blank');
+    } else {
+      window.open(`https://wa.me/?text=${encodedText}`, '_blank');
+    }
+  };
+
+  const handleSendWhatsAppReminder = (task: Task) => {
+    const rewardUnit = task.rewardType === 'tokens' ? 'توكن' : 'نقاط';
+    const pointsText = task.rewardAmount || task.points ? ` (+${task.rewardAmount || task.points} ${rewardUnit})` : '';
+    
+    let timeText = '';
+    if (task.endTime) {
+      const end = typeof task.endTime === 'string' ? new Date(task.endTime) : task.endTime.toDate?.() || new Date(task.endTime.seconds * 1000);
+      const endFormatted = end.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+      timeText = ` ⏱️ قبل الساعة *${endFormatted}*`;
+    }
+
+    const name = task.assignedToName || 'البطل';
+    
+    const message = `تذكير لطيف للبطل 👦 *${name}* 🌟\n\nلا تنسَ إنجاز مهمتك الرائعة اليوم: *"${task.title}"* ${pointsText}.${timeText}\n\nنحن بانتظار إبداعك يا بطل! 💪✨🏆`;
+    const encodedText = encodeURIComponent(message);
+    
+    const member = family.find(m => m.uid === task.assignedTo);
+    let targetPhone = member?.phoneNumber || '';
+    targetPhone = targetPhone.replace(/[\s\+\-\(\)]/g, '');
+    
+    if (targetPhone) {
+      if (targetPhone.startsWith('0') && targetPhone.length === 10) {
+        targetPhone = '966' + targetPhone.substring(1);
+      }
+      window.open(`https://wa.me/${targetPhone}?text=${encodedText}`, '_blank');
+    } else {
+      window.open(`https://wa.me/?text=${encodedText}`, '_blank');
+    }
+  };
+
   const addTask = async () => {
     if (!newTitle.trim()) {
       alert('الرجاء إدخال اسم المهمة أولاً');
@@ -3341,6 +3413,17 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
         const title = isParent ? 'مهمة جديدة! 🚀' : 'طلب مساعدة/مهمة! 🤝';
         const body = `لقد تم تكليفك بمهمة من ${profile.displayName}: ${newTitle} والمكافأة ${rewardAmt} ${newRewardType === 'points' ? 'نقطة' : 'توكن'} ✨`;
         await sendNotification(newAssigned, title, body, 'task');
+      }
+
+      if (sendWhatsAppOnCreate) {
+        handleSendWhatsAppNewTask(
+          newTitle.trim(),
+          rewardAmt,
+          newRewardType,
+          newAssigned,
+          newStartTime,
+          newEndTime
+        );
       }
 
       setNewTitle('');
@@ -3636,6 +3719,29 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
                     setNewTitle(task.title);
                     setNewRewardAmount(task.points);
                   }} />
+                </div>
+
+                <div className={`flex items-center justify-between px-4 py-3.5 rounded-2xl border transition-all duration-300 ${
+                  sendWhatsAppOnCreate 
+                    ? 'bg-emerald-500/15 border-emerald-500/40 shadow-lg shadow-emerald-500/5' 
+                    : 'bg-white/5 border-white/10 hover:bg-white/[0.07]'
+                }`}>
+                  <div className="flex items-center gap-2.5">
+                    <span className="text-xl">🟢</span>
+                    <div className="flex flex-col text-right">
+                      <span className="text-xs font-black text-white">إرسال تنبيه واتساب فوري 💬</span>
+                      <span className="text-[10px] font-bold text-emerald-400">سيتم فتح الواتساب فوراً لمشاركة المهمة الجديدة</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSendWhatsAppOnCreate(!sendWhatsAppOnCreate)}
+                    className={`w-12 h-7 rounded-full p-1 transition-all duration-200 focus:outline-none flex ${
+                      sendWhatsAppOnCreate ? 'bg-emerald-500 justify-end' : 'bg-white/10 justify-start'
+                    }`}
+                  >
+                    <div className="w-5 h-5 rounded-full bg-white shadow-md" />
+                  </button>
                 </div>
 
                 <button 
@@ -3937,11 +4043,18 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
                 {task.status === 'pending' && isParent && (
                   <div className="flex gap-3 w-full">
                     <button 
+                      onClick={() => handleSendWhatsAppReminder(task)}
+                      className="px-4 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 py-4 rounded-2xl font-black transition-all active:scale-95 border border-emerald-500/20 flex items-center justify-center gap-2"
+                      title="إرسال تذكير واتساب"
+                    >
+                      <span>💬 تذكير واتساب</span>
+                    </button>
+                    <button 
                       onClick={() => cancelTask(task)}
                       className="flex-1 bg-red-600/10 text-red-500 hover:bg-red-500 hover:text-white border border-red-500/20 py-4 rounded-2xl font-black transition-all active:scale-95 flex items-center justify-center gap-2"
                     >
                       <Trash2 size={16} />
-                      إلغاء وأرشفة المهمة
+                      إلغاء وأرشفة
                     </button>
                   </div>
                 )}
@@ -3952,6 +4065,13 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
                       className="flex-1 bg-summer-primary text-white py-4 rounded-2xl font-black hover:bg-summer-primary/90 transition-all active:scale-95 shadow-lg"
                     >
                       تأكيد الإنجاز 🧹
+                    </button>
+                    <button 
+                      onClick={() => handleSendWhatsAppReminder(task)}
+                      className="px-3.5 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 rounded-2xl font-black transition-all border border-emerald-500/20 flex items-center justify-center"
+                      title="تذكير واتساب"
+                    >
+                      💬
                     </button>
                     <button 
                       onClick={() => setTransferingTask(task)}
@@ -5326,7 +5446,9 @@ const SettingsPage = ({ profile }: { profile: UserProfile }) => {
   useEffect(() => {
     return onSnapshot(doc(db, 'config', 'appearance'), (snap) => {
       if (snap.exists()) setGlobalAppearance(snap.data());
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'config/appearance'));
+    }, (err) => {
+      console.warn('Optional appearance config fetch failed/unauthorized, falling back to defaults:', err.message);
+    });
   }, []);
 
   const saveSettings = async () => {
@@ -7130,7 +7252,9 @@ export default function App() {
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'config', 'appearance'), (snap) => {
       if (snap.exists()) setGlobalAppearance(snap.data());
-    }, (err) => handleFirestoreError(err, OperationType.GET, 'config/appearance'));
+    }, (err) => {
+      console.warn('Optional appearance config fetch failed/unauthorized, falling back to defaults:', err.message);
+    });
     return () => unsub();
   }, []);
 
