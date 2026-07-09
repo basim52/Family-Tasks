@@ -135,8 +135,115 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
 
+  // Notification & WhatsApp Proximity States
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [notifiedTasks, setNotifiedTasks] = useState<Record<string, boolean>>({});
+  const [notificationPermission, setNotificationPermission] = useState<string>(
+    typeof Notification !== 'undefined' ? Notification.permission : 'default'
+  );
+
   const isParent = profile.role === 'parent';
   const weekDays = getDatesForCurrentWeek();
+
+  // Update current time every 30 seconds to run real-time proximity checks
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 30000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Proximity Alert calculations: find pending tasks today that expire within 60 minutes
+  const expiringSoonTasks = tasks.filter(task => {
+    if (task.status !== 'pending' || task.isArchived) return false;
+    
+    // Check if task date is today (using YYYY-MM-DD formatted in local time)
+    const todayStr = currentTime.toLocaleDateString('en-CA'); // Outputs "YYYY-MM-DD" reliably
+    if (task.date !== todayStr) return false;
+    
+    const endTimeStr = task.endTime || task.time;
+    if (!endTimeStr) return false;
+    
+    const [hour, min] = endTimeStr.split(':').map(Number);
+    const deadlineDate = new Date(currentTime);
+    deadlineDate.setHours(hour, min, 0, 0);
+    
+    const diffMs = deadlineDate.getTime() - currentTime.getTime();
+    const diffMin = Math.ceil(diffMs / (1000 * 60));
+    
+    // Within 60 minutes and in the future
+    return diffMin > 0 && diffMin <= 60;
+  });
+
+  // Trigger system push notifications if any task enters the 60 min warning zone
+  useEffect(() => {
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    
+    expiringSoonTasks.forEach(task => {
+      if (!notifiedTasks[task.id]) {
+        try {
+          const pointsStr = task.points > 0 ? ` (+${task.points} نقاط)` : '';
+          
+          new Notification("تنبيه مهمة توشك على الانتهاء! ⏰", {
+            body: `البطل ${task.userName}، بقيت ساعة واحدة أو أقل لإنجاز مهمة: "${task.title}" ${pointsStr}! أسرع لإنجازها.`,
+            icon: '/favicon.ico',
+            tag: task.id // Prevent duplicates for the same task
+          });
+          
+          setNotifiedTasks(prev => ({ ...prev, [task.id]: true }));
+        } catch (e) {
+          console.error('Failed to trigger native notification:', e);
+        }
+      }
+    });
+  }, [expiringSoonTasks, notifiedTasks]);
+
+  const handleRequestNotificationPermission = async () => {
+    if (typeof Notification === 'undefined') {
+      alert('متصفحك الحالي لا يدعم ميزة الإشعارات التلقائية.');
+      return;
+    }
+    
+    try {
+      const permission = await Notification.requestPermission();
+      setNotificationPermission(permission);
+      if (permission === 'granted') {
+        new Notification("تم تفعيل الإشعارات بنجاح! 🎉", {
+          body: "سنقوم بتنبيهك تلقائياً قبل ساعة كاملة من انتهاء مهامك المعلقة لتنجزها بذكاء!",
+          icon: '/favicon.ico'
+        });
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleSendWhatsAppReminder = (task: DailyTask) => {
+    const pointsText = task.points > 0 ? ` (+${task.points} نقاط)` : '';
+    const formattedEndTime = formatArabicTime(task.endTime || task.time);
+    
+    // Calculate minutes left dynamically if today
+    const todayStr = new Date().toLocaleDateString('en-CA');
+    let timeLeftText = `قبل انتهاء الوقت في تمام ${formattedEndTime}`;
+    
+    if (task.date === todayStr) {
+      const endTimeStr = task.endTime || task.time;
+      if (endTimeStr) {
+        const [hour, min] = endTimeStr.split(':').map(Number);
+        const deadlineDate = new Date();
+        deadlineDate.setHours(hour, min, 0, 0);
+        const diffMs = deadlineDate.getTime() - Date.now();
+        const diffMin = Math.ceil(diffMs / (1000 * 60));
+        if (diffMin > 0 && diffMin <= 60) {
+          timeLeftText = `متبقي ${diffMin} دقيقة فقط (ينتهي الساعة ${formattedEndTime})`;
+        }
+      }
+    }
+
+    const message = `تنبيه عاجل للبطل 👦 *${task.userName}* ⏰\n\nتوشك فترة مهمتك اليومية *"${task.title}"* ${pointsText} على الانتهاء!\n⏱️ الوقت: *${timeLeftText}*.\n\nأسرع لإنجاز المهمة وتسجيل نجاحك اليومي الباهر وكسب نقاطك الوفيرة! 💪🏆🎉`;
+    const encodedText = encodeURIComponent(message);
+    window.open(`https://wa.me/?text=${encodedText}`, '_blank');
+  };
 
   // Load all family members (both parents and children)
   useEffect(() => {
@@ -427,6 +534,114 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
             ))}
           </select>
         </div>
+      </div>
+
+      {/* 🔔 Urgent Expiring Tasks and Notification Control Panel */}
+      <div className="space-y-4">
+        {/* Permission Request Header / Alert */}
+        <div className="bg-slate-900 border border-white/10 p-5 rounded-[2rem] flex flex-col sm:flex-row items-center justify-between gap-4 relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-24 h-24 bg-amber-500/5 rounded-full blur-xl pointer-events-none" />
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 animate-pulse text-lg">
+              🔔
+            </div>
+            <div className="space-y-0.5 text-right">
+              <h3 className="text-xs font-black text-white">إشعارات تذكير الموقت التلقائي</h3>
+              <p className="text-[10px] text-brand-text/60">
+                فعل الإشعارات ليرسل النظام تنبيهات دفع (Push) تذكر الطفل تلقائياً قبل ساعة كاملة من فوات وقت المهمة!
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={handleRequestNotificationPermission}
+            className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 whitespace-nowrap outline-none ${
+              notificationPermission === 'granted'
+                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 cursor-default'
+                : 'bg-amber-500 text-slate-950 hover:bg-amber-400 hover:scale-105 shadow-lg shadow-amber-500/10'
+            }`}
+          >
+            {notificationPermission === 'granted' ? '✓ تم تفعيل الإشعارات' : '🔔 تفعيل تنبيهات الدفع'}
+          </button>
+        </div>
+
+        {/* Proximity Alerts (tasks expiring soon in the next hour) */}
+        {expiringSoonTasks.length > 0 && (
+          <div className="bg-red-500/5 border border-red-500/15 p-6 rounded-[2.5rem] space-y-4 relative overflow-hidden text-right">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-red-500/5 rounded-full blur-2xl pointer-events-none" />
+            
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-lg animate-bounce">🚨</span>
+                <h3 className="text-xs font-black text-red-400">مهام توشك على الانتهاء خلال ساعة أو أقل!</h3>
+              </div>
+              <span className="text-[10px] bg-red-500/10 text-red-400 border border-red-500/20 px-2 py-0.5 rounded-full font-black animate-pulse">
+                عاجل ({expiringSoonTasks.length})
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <AnimatePresence mode="popLayout">
+                {expiringSoonTasks.map(task => {
+                  const cat = getCategoryDetails(task.category);
+                  const CatIcon = cat.icon;
+                  const formattedEndTime = formatArabicTime(task.endTime || task.time);
+
+                  // Calculate exact minutes left
+                  const endTimeStr = task.endTime || task.time;
+                  let diffMin = 60;
+                  if (endTimeStr) {
+                    const [h, m] = endTimeStr.split(':').map(Number);
+                    const deadlineDate = new Date();
+                    deadlineDate.setHours(h, m, 0, 0);
+                    const diffMs = deadlineDate.getTime() - Date.now();
+                    diffMin = Math.ceil(diffMs / (1000 * 60));
+                  }
+
+                  return (
+                    <motion.div
+                      key={`urgent-${task.id}`}
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.95 }}
+                      className="bg-slate-950/80 border border-red-500/20 p-4 rounded-2xl flex items-center justify-between gap-3"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 bg-red-500/10 text-red-400 rounded-xl border border-red-500/20 animate-pulse">
+                          <Clock size={16} />
+                        </div>
+                        <div className="space-y-1 text-right">
+                          <div className="flex items-center gap-1.5">
+                            <div className={`p-0.5 rounded border text-[8px] flex items-center justify-center ${cat.colorClass}`}>
+                              <CatIcon size={10} />
+                            </div>
+                            <span className="text-[10px] font-black text-white">{task.title}</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-[9px] font-bold text-red-400/80">
+                            <span>⏱️ ينتهي خلال {diffMin} دقيقة</span>
+                            <span>•</span>
+                            <span>(الساعة {formattedEndTime})</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        {/* Send direct WhatsApp reminder */}
+                        <button
+                          onClick={() => handleSendWhatsAppReminder(task)}
+                          className="px-3 py-1.5 rounded-xl bg-emerald-500 text-slate-950 hover:bg-emerald-400 text-[10px] font-black flex items-center gap-1 transition-all shadow-md shadow-emerald-500/10"
+                          title="إرسال تذكير مباشر للواتساب"
+                        >
+                          <span>واتساب 💬</span>
+                        </button>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </AnimatePresence>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Weekly Evaluation Section */}
@@ -899,16 +1114,29 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
                       </div>
                     </div>
 
-                    {/* Delete option for parents, or children deleting their pending tasks */}
-                    {(isParent || (!isCompleted && !isExpired)) && (
-                      <button
-                        onClick={() => handleDeleteTask(task.id)}
-                        className="p-2 text-white/20 hover:text-red-400 hover:bg-red-400/10 rounded-xl transition-all outline-none md:opacity-0 group-hover:opacity-100"
-                        title="حذف المهمة"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    )}
+                    <div className="flex items-center gap-1.5 z-10">
+                      {/* WhatsApp reminder button for active/pending tasks */}
+                      {!isCompleted && !isExpired && (
+                        <button
+                          onClick={() => handleSendWhatsAppReminder(task)}
+                          className="p-2 text-emerald-500 hover:text-emerald-400 hover:bg-emerald-500/10 rounded-xl transition-all outline-none"
+                          title="إرسال تذكير واتساب"
+                        >
+                          💬
+                        </button>
+                      )}
+
+                      {/* Delete option for parents, or children deleting their pending tasks */}
+                      {(isParent || (!isCompleted && !isExpired)) && (
+                        <button
+                          onClick={() => handleDeleteTask(task.id)}
+                          className="p-2 text-white/20 hover:text-red-400 hover:bg-red-400/10 rounded-xl transition-all outline-none md:opacity-0 group-hover:opacity-100"
+                          title="حذف المهمة"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      )}
+                    </div>
                   </motion.div>
                 );
               })}
@@ -1071,6 +1299,17 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
 
                       {/* Right Side: Quick Action and Delete Controls */}
                       <div className="flex items-center justify-end gap-3 self-end md:self-auto pt-2 md:pt-0">
+                        {/* WhatsApp reminder button for active/pending tasks */}
+                        {!isCompleted && !isExpired && (
+                          <button
+                            onClick={() => handleSendWhatsAppReminder(task)}
+                            className="px-3 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 text-[10px] font-black flex items-center gap-1 transition-all outline-none"
+                            title="إرسال تذكير واتساب"
+                          >
+                            💬 تذكير واتساب
+                          </button>
+                        )}
+
                         {/* Complete button */}
                         {!isExpired && (
                           <button
