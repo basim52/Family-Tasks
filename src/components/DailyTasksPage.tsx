@@ -30,7 +30,9 @@ import {
   Dumbbell,
   Home,
   Sparkles,
-  Archive
+  Archive,
+  Edit2,
+  X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -114,6 +116,25 @@ const getCategoryDetails = (categoryKey?: string) => {
   }
 };
 
+async function safeFetch(url: string, options: RequestInit) {
+  const resp = await fetch(url, options);
+  const contentType = resp.headers.get('content-type');
+  
+  if (contentType && contentType.includes('application/json')) {
+    const data = await resp.json();
+    if (!resp.ok) {
+      throw new Error(data.error || `HTTP error! status: ${resp.status}`);
+    }
+    return data;
+  } else {
+    const text = await resp.text();
+    if (!resp.ok) {
+      throw new Error(`HTTP error! status: ${resp.status}`);
+    }
+    return { response: text };
+  }
+}
+
 interface DailyTasksPageProps {
   profile: UserProfile;
 }
@@ -135,6 +156,19 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
   const [sendWhatsAppOnCreate, setSendWhatsAppOnCreate] = useState(false);
+
+  // Edit Task State
+  const [editingTask, setEditingTask] = useState<DailyTask | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editTime, setEditTime] = useState('12:00');
+  const [editEndTime, setEditEndTime] = useState('13:00');
+  const [editDate, setEditDate] = useState('');
+  const [editPoints, setEditPoints] = useState<number>(5);
+  const [editCategory, setEditCategory] = useState<string>('educational');
+  const [isUpdatingTask, setIsUpdatingTask] = useState(false);
+  const [editFormError, setEditFormError] = useState('');
+  const [isGeneratingTask, setIsGeneratingTask] = useState(false);
+  const [isGeneratingEditTask, setIsGeneratingEditTask] = useState(false);
 
   // Notification & WhatsApp Proximity States
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -446,6 +480,45 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
       setFormError('حدث خطأ أثناء حفظ المهمة: ' + (err.message || err));
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleUpdateTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTask) return;
+    if (!editTitle.trim()) {
+      setEditFormError('يرجى كتابة عنوان المهمة اليومية!');
+      return;
+    }
+    setEditFormError('');
+    setIsUpdatingTask(true);
+
+    try {
+      // Validate time order
+      const [startH, startM] = editTime.split(':').map(Number);
+      const [endH, endM] = editEndTime.split(':').map(Number);
+      if (startH * 60 + startM >= endH * 60 + endM) {
+        setEditFormError('يرجى التأكد من أن وقت الانتهاء يأتي بعد وقت البدء!');
+        setIsUpdatingTask(false);
+        return;
+      }
+
+      await updateDoc(doc(db, 'dailyTasks', editingTask.id), {
+        title: editTitle.trim(),
+        date: editDate,
+        time: editTime,
+        endTime: editEndTime,
+        points: Number(editPoints) || 0,
+        category: editCategory
+      });
+
+      setEditingTask(null);
+      alert('تم تحديث المهمة اليومية بنجاح! 🎉');
+    } catch (err: any) {
+      console.error(err);
+      setEditFormError('حدث خطأ أثناء تحديث المهمة: ' + (err.message || err));
+    } finally {
+      setIsUpdatingTask(false);
     }
   };
 
@@ -863,7 +936,43 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
 
           <form onSubmit={handleCreateTask} className="space-y-4">
             <div className="space-y-1">
-              <label className="text-[10px] text-white/50 font-bold">اسم المهمة اليومية</label>
+              <div className="flex justify-between items-center px-1">
+                <label className="text-[10px] text-white/50 font-bold">اسم المهمة اليومية</label>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const categoryLabel = newTaskCategory === 'educational' ? 'تعليمية' : newTaskCategory === 'athletic' ? 'رياضية/بدنية' : newTaskCategory === 'household' ? 'منزلية وترتيب' : 'عامة وإيجابية';
+                    setIsGeneratingTask(true);
+                    try {
+                      const data = await safeFetch('/api/ai', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          prompt: newTaskTitle.trim() 
+                            ? `صغ هذه المهمة اليومية للطفل بشكل بليغ ومحفز وإيجابي جداً باللغة العربية بحدود 4 إلى 8 كلمات: "${newTaskTitle}".`
+                            : `اقترح مهمة يومية ممتازة وملهمة للأطفال في تصنيف مهمة ${categoryLabel}. اكتب فقط نص المهمة مع إيموجي لطيف في النهاية بحدود 6 كلمات.`,
+                          systemInstruction: "أنت خبير تربوي ومساعد ذكي تلهم الأطفال بعبارات إيجابية مشجعة."
+                        })
+                      });
+                      if (data?.response) {
+                        setNewTaskTitle(data.response.replace(/^"|"$/g, '').trim());
+                      }
+                    } catch (e) {
+                      console.error(e);
+                      if (!newTaskTitle.trim()) {
+                        setNewTaskTitle("ترتيب سريري وتنظيم كتبي المدرسية بابتسامة وعزيمة 🧹✨");
+                      }
+                    } finally {
+                      setIsGeneratingTask(false);
+                    }
+                  }}
+                  disabled={isGeneratingTask}
+                  className="text-[9px] font-black text-amber-400 flex items-center gap-1 hover:underline cursor-pointer disabled:opacity-50"
+                >
+                  <Sparkles size={11} className={isGeneratingTask ? "animate-spin" : "animate-pulse"} />
+                  {isGeneratingTask ? 'جاري الصياغة...' : 'صياغة ذكية بالذكاء الاصطناعي ✨'}
+                </button>
+              </div>
               <input 
                 type="text" 
                 value={newTaskTitle}
@@ -871,6 +980,35 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
                 placeholder="مثال: مراجعة سورة الملك، ترتيب غرفتي..."
                 className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white outline-none focus:border-amber-400 font-bold text-right"
               />
+            </div>
+
+            {/* Quick ideas chips */}
+            <div className="space-y-1">
+              <span className="text-[8px] font-bold text-white/40 block px-1">اقتراحات سريعة لكتابة المهمة:</span>
+              <div className="flex flex-wrap gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                {[
+                  { title: '📖 مراجعة القرآن', cat: 'educational', points: 10 },
+                  { title: '🧹 ترتيب غرفتي', cat: 'household', points: 5 },
+                  { title: '🏃‍♂️ التمارين الرياضية', cat: 'athletic', points: 8 },
+                  { title: '💡 قراءة كتاب مفيد', cat: 'educational', points: 10 },
+                  { title: '💦 سقي نباتات المنزل', cat: 'household', points: 5 },
+                  { title: '🤝 مساعدة في المطبخ', cat: 'household', points: 7 },
+                  { title: '🦷 تنظيف أسناني', cat: 'general', points: 3 },
+                ].map((idea, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => {
+                      setNewTaskTitle(idea.title);
+                      setNewTaskCategory(idea.cat);
+                      setNewTaskPoints(idea.points);
+                    }}
+                    className="px-2 py-1 rounded-full text-[9px] font-black bg-white/5 border border-white/5 hover:bg-white/10 hover:border-amber-500/30 text-white/80 transition-all shrink-0"
+                  >
+                    {idea.title}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="space-y-1">
@@ -1304,6 +1442,25 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
                         </button>
                       )}
 
+                      {/* Edit option for parents, or children editing their pending tasks */}
+                      {(isParent || (!isCompleted && !isExpired)) && (
+                        <button
+                          onClick={() => {
+                            setEditingTask(task);
+                            setEditTitle(task.title);
+                            setEditTime(task.time);
+                            setEditEndTime(task.endTime || task.time);
+                            setEditDate(task.date);
+                            setEditPoints(task.points);
+                            setEditCategory(task.category);
+                          }}
+                          className="p-2 text-white/20 hover:text-amber-400 hover:bg-amber-400/10 rounded-xl transition-all outline-none md:opacity-0 group-hover:opacity-100"
+                          title="تعديل المهمة"
+                        >
+                          <Edit2 size={16} />
+                        </button>
+                      )}
+
                       {/* Delete option for parents, or children deleting their pending tasks */}
                       {(isParent || (!isCompleted && !isExpired)) && (
                         <button
@@ -1502,6 +1659,25 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
                           </button>
                         )}
 
+                        {/* Edit option for parents, or children editing their pending tasks */}
+                        {(isParent || (!isCompleted && !isExpired)) && (
+                          <button
+                            onClick={() => {
+                              setEditingTask(task);
+                              setEditTitle(task.title);
+                              setEditTime(task.time);
+                              setEditEndTime(task.endTime || task.time);
+                              setEditDate(task.date);
+                              setEditPoints(task.points);
+                              setEditCategory(task.category);
+                            }}
+                            className="p-2 text-white/20 hover:text-amber-400 hover:bg-amber-400/10 rounded-xl transition-all outline-none md:opacity-0 group-hover:opacity-100"
+                            title="تعديل المهمة"
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                        )}
+
                         {/* Delete button */}
                         {(isParent || (!isCompleted && !isExpired)) && (
                           <button
@@ -1520,6 +1696,169 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
           </div>
         )}
       </div>
+
+      {/* Elegant Edit Task Modal */}
+      <AnimatePresence>
+        {editingTask && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4 overflow-y-auto"
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 20 }}
+              className="bg-slate-900 border border-white/10 w-full max-w-lg rounded-[2.5rem] p-6 shadow-2xl relative"
+            >
+              <button
+                onClick={() => setEditingTask(null)}
+                className="absolute left-6 top-6 text-white/40 hover:text-white p-2 hover:bg-white/5 rounded-full transition-all"
+              >
+                <X size={18} />
+              </button>
+
+              <div className="flex items-center gap-2 mb-6">
+                <Edit2 className="text-amber-400" size={20} />
+                <h3 className="text-base font-black text-white">تعديل المهمة اليومية</h3>
+              </div>
+
+              {editFormError && (
+                <div className="bg-red-500/10 border border-red-500/20 text-red-300 text-xs p-3.5 rounded-2xl mb-4 font-bold flex items-center gap-2">
+                  <AlertCircle size={14} className="shrink-0" />
+                  <span>{editFormError}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleUpdateTask} className="space-y-4">
+                {/* Task title with AI optimizer */}
+                <div className="space-y-1">
+                  <div className="flex justify-between items-center px-1">
+                    <label className="text-[10px] text-white/50 font-bold">اسم المهمة</label>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const categoryLabel = editCategory === 'educational' ? 'تعليمية' : editCategory === 'athletic' ? 'رياضية/بدنية' : editCategory === 'household' ? 'منزلية وترتيب' : 'عامة وإيجابية';
+                        setIsGeneratingEditTask(true);
+                        try {
+                          const data = await safeFetch('/api/ai', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              prompt: editTitle.trim()
+                                ? `صغ هذه المهمة اليومية للطفل بشكل بليغ ومحفز وإيجابي جداً باللغة العربية بحدود 4 إلى 8 كلمات: "${editTitle}".`
+                                : `اقترح مهمة يومية ممتازة وملهمة للأطفال في تصنيف مهمة ${categoryLabel}. اكتب فقط نص المهمة مع إيموجي لطيف في النهاية بحدود 6 كلمات.`,
+                              systemInstruction: "أنت خبير تربوي ومساعد ذكي تلهم الأطفال بعبارات إيجابية مشجعة."
+                            })
+                          });
+                          if (data?.response) {
+                            setEditTitle(data.response.replace(/^"|"$/g, '').trim());
+                          }
+                        } catch (e) {
+                          console.error(e);
+                        } finally {
+                          setIsGeneratingEditTask(false);
+                        }
+                      }}
+                      disabled={isGeneratingEditTask}
+                      className="text-[9px] font-black text-amber-400 flex items-center gap-1 hover:underline cursor-pointer disabled:opacity-50"
+                    >
+                      <Sparkles size={11} className={isGeneratingEditTask ? "animate-spin" : "animate-pulse"} />
+                      {isGeneratingEditTask ? 'جاري التحسين...' : 'تحسين بالذكاء الاصطناعي ✨'}
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    placeholder="اكتب اسم المهمة..."
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white outline-none focus:border-amber-400 font-bold text-right"
+                  />
+                </div>
+
+                {/* Date & Time */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[10px] text-white/50 font-bold">التاريخ</label>
+                    <input
+                      type="date"
+                      value={editDate}
+                      onChange={(e) => setEditDate(e.target.value)}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-[11px] text-white outline-none focus:border-amber-400 font-bold font-sans"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] text-white/50 font-bold">وقت البدء</label>
+                    <input
+                      type="time"
+                      value={editTime}
+                      onChange={(e) => setEditTime(e.target.value)}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white outline-none focus:border-amber-400 font-black font-sans"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] text-white/50 font-bold">وقت الانتهاء</label>
+                    <input
+                      type="time"
+                      value={editEndTime}
+                      onChange={(e) => setEditEndTime(e.target.value)}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white outline-none focus:border-amber-400 font-black font-sans"
+                    />
+                  </div>
+                </div>
+
+                {/* Category & Points */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[10px] text-white/50 font-bold">التصنيف التربوي</label>
+                    <select
+                      value={editCategory}
+                      onChange={(e) => setEditCategory(e.target.value)}
+                      className="w-full bg-slate-950 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white outline-none focus:border-amber-400 font-bold"
+                    >
+                      <option value="educational">📖 مهمة تعليمية / دراسية</option>
+                      <option value="athletic">🏃‍♂️ مهمة بدنية / رياضية</option>
+                      <option value="household">🧹 ترتيب / منزلي</option>
+                      <option value="general">✨ إيجابية وسلوك عام</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] text-white/50 font-bold">النقاط المستحقة</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="100"
+                      value={editPoints}
+                      onChange={(e) => setEditPoints(Number(e.target.value))}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white outline-none focus:border-amber-400 font-bold text-center font-sans"
+                    />
+                  </div>
+                </div>
+
+                {/* Action buttons */}
+                <div className="flex items-center gap-3 pt-4 border-t border-white/5">
+                  <button
+                    type="submit"
+                    disabled={isUpdatingTask}
+                    className="flex-1 py-3 px-4 rounded-xl text-xs font-black bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 shadow-lg shadow-amber-500/10 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {isUpdatingTask ? 'جاري الحفظ...' : 'تحديث وتأكيد التغييرات 💾'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingTask(null)}
+                    className="py-3 px-5 rounded-xl text-xs font-black bg-white/5 hover:bg-white/10 text-white/80 transition-all"
+                  >
+                    إلغاء
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
     </div>
   );

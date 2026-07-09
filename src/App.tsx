@@ -328,6 +328,38 @@ const sendNotification = async (userId: string, title: string, body: string, typ
   });
 };
 
+const triggerWebhook = async (type: 'sms' | 'whatsapp' | 'webhook' | 'automation', message: string) => {
+  try {
+    await addDoc(collection(db, 'automationLogs'), {
+      type,
+      message,
+      status: 'success',
+      createdAt: serverTimestamp()
+    });
+    
+    const settingsSnap = await getDoc(doc(db, 'config', 'family_settings'));
+    if (settingsSnap.exists()) {
+      const data = settingsSnap.data();
+      if (data.webhookUrl) {
+        await safeFetch('/api/webhook/dispatch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            webhookUrl: data.webhookUrl,
+            payload: {
+              event: type,
+              message,
+              timestamp: new Date().toISOString()
+            }
+          })
+        });
+      }
+    }
+  } catch (err) {
+    console.warn('Webhook dispatch failed or skipped:', err);
+  }
+};
+
 const getLevel = (totalPoints: number = 0) => {
   if (totalPoints >= 1000) return { name: 'المستوى الذهبي', color: 'text-brand-accent', icon: Star };
   if (totalPoints >= 500) return { name: 'المستوى الفضي', color: 'text-brand-primary', icon: Star };
@@ -1926,10 +1958,17 @@ const Dashboard = ({ profile }: { profile: UserProfile }) => {
 // --- AI Out-of-the-box Components ---
 
 const AIAssistant = ({ profile }: { profile: UserProfile }) => {
+  const [activeTab, setActiveTab] = useState<'chat' | 'profiler'>('chat');
   const [messages, setMessages] = useState<{ role: 'user' | 'model', parts: { text: string }[] }[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Profiler States
+  const [profilerLoading, setProfilerLoading] = useState(false);
+  const [profileResult, setProfileResult] = useState('');
+  const [parsedTasks, setParsedTasks] = useState<any[]>([]);
+  const [deployingTasks, setDeployingTasks] = useState(false);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -1962,66 +2001,330 @@ const AIAssistant = ({ profile }: { profile: UserProfile }) => {
     }
   };
 
+  const handleRunProfiler = async () => {
+    setProfilerLoading(true);
+    setProfileResult('');
+    setParsedTasks([]);
+    try {
+      // 1. Fetch children
+      const usersSnap = await getDocs(query(collection(db, 'users'), where('role', '==', 'child')));
+      const children = usersSnap.docs.map(d => ({ uid: d.id, ...d.data() } as UserProfile));
+
+      // 2. Fetch tasks
+      const tasksSnap = await getDocs(query(collection(db, 'tasks'), limit(100)));
+      const tasks = tasksSnap.docs.map(d => d.data());
+
+      // 3. Fetch behavior ratings
+      const ratingsSnap = await getDocs(query(collection(db, 'behaviorRatings'), limit(50)));
+      const ratings = ratingsSnap.docs.map(d => d.data());
+
+      if (children.length === 0) {
+        setProfileResult("لم نجد أطفالاً مسجلين في النظام حالياً لإجراء التحليل السلوكي. يرجى إضافة أطفال أولاً من صفحة الإعدادات.");
+        setProfilerLoading(false);
+        return;
+      }
+
+      // Format current family summary
+      const childrenSummary = children.map(c => {
+        const childTasks = tasks.filter(t => t.assignedTo === c.uid);
+        const completed = childTasks.filter(t => t.status === 'completed' || t.status === 'approved').length;
+        const pending = childTasks.filter(t => t.status === 'pending').length;
+        const childRatings = ratings.filter(r => r.userId === c.uid).map(r => r.reason).join('، ');
+        return `
+- الطفل: ${c.displayName}
+  المعرف الرقمي: ${c.uid}
+  النقاط الحالية: ${c.points}
+  المهام المكتملة: ${completed}
+  المهام المعلقة: ${pending}
+  تقييمات سلوكية أخيرة: ${childRatings || 'لا يوجد تقييمات سلوكية مسجلة بعد'}
+        `;
+      }).join('\n');
+
+      const prompt = `
+قم بإجراء تحليل سلوكي وتربوي شامل ومحترف كأخصائي علم نفس تربوي وخبير في الذكاء الاصطناعي التربوي والتحفيز السلوكي لديه خبرة 25 عاماً.
+البيانات الفعلية لعائلتي في نظام العائلة الذكي:
+${childrenSummary}
+
+المخرجات المطلوبة باللغة العربية المبهجة والتربوية الاحترافية:
+1. **ملخص الأداء والالتزام العام**: تحليل شامل ومحفز للأهل يبين مدى تقدم العائلة.
+2. **التحليل السلوكي والنصائح لكل طفل**: نقاط القوة، وفرص التمكين والنمو لكل بطل من الأبطال بالاسم.
+3. **توصية المهام الذكية الجديدة**: اقترح 3 مهام محددة وجذابة لتمكين سلوك إيجابي بناءً على هذه البيانات.
+
+من فضلك، أدرج المهام الثلاثة المقترحة في نهاية إجابتك ككتلة JSON صحيحة تماماً ومغلفة بـ \`\`\`json ... \`\`\` بالشكل التالي لتسهيل جدولتها آلياً في النظام:
+\`\`\`json
+[
+  {
+    "title": "مهمة مقترحة",
+    "description": "تفاصيل المهمة الذكية وكيف تساعد الطفل",
+    "points": 30,
+    "assignedTo": "ضع_هنا_المعرف_الرقمي_للطفل",
+    "assignedToName": "ضع_هنا_اسم_الطفل"
+  }
+]
+\`\`\`
+      `;
+
+      const data = await safeFetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt,
+          systemInstruction: "أنت بروفيسور متميز وخبير عالمي في السلوك التربوي وتصميم نظم المكافآت للأطفال. تحدث بلغة عربية ملهمة ودافئة."
+        })
+      });
+
+      const responseText = data.response;
+      setProfileResult(responseText);
+
+      // Attempt to extract JSON block
+      const jsonMatch = responseText.match(/```json\s*([\s\S]*?)\s*```/) || responseText.match(/\[\s*\{\s*"title"[\s\S]*?\}\s*\]/);
+      if (jsonMatch) {
+        try {
+          const rawJson = jsonMatch[1] || jsonMatch[0];
+          const parsed = JSON.parse(rawJson.trim());
+          if (Array.isArray(parsed)) {
+            // Verify if child exists in our local list
+            const validTasks = parsed.map(t => {
+              const matchingChild = children.find(c => c.uid === t.assignedTo || c.displayName === t.assignedToName);
+              return {
+                ...t,
+                assignedTo: matchingChild?.uid || children[0].uid,
+                assignedToName: matchingChild?.displayName || children[0].displayName,
+                points: Number(t.points) || 20
+              };
+            });
+            setParsedTasks(validTasks);
+          }
+        } catch (e) {
+          console.warn("Could not parse AI suggested tasks JSON:", e);
+        }
+      }
+
+      await triggerWebhook('automation', `🧠 تم تشغيل الفحص التربوي الشامل بالذكاء الاصطناعي لـ ${children.length} من أفراد العائلة بنجاح.`);
+
+    } catch (err: any) {
+      console.error(err);
+      setProfileResult("عذراً، واجهنا مشكلة أثناء إعداد التحليل التربوي الذكي. يرجى التأكد من اتصال الإنترنت وإعادة المحاولة.");
+    } finally {
+      setProfilerLoading(false);
+    }
+  };
+
+  const handleDeployTasks = async () => {
+    if (parsedTasks.length === 0 || deployingTasks) return;
+    setDeployingTasks(true);
+    try {
+      for (const t of parsedTasks) {
+        await addDoc(collection(db, 'tasks'), {
+          title: t.title,
+          description: t.description || 'مهمة ذكية مقترحة ومصممة من قبل مستشار العائلة الذكي 🧠',
+          points: t.points,
+          rewardType: 'points',
+          rewardAmount: t.points,
+          status: 'pending',
+          assignedTo: t.assignedTo,
+          assignedToName: t.assignedToName,
+          createdBy: profile.uid,
+          createdByName: profile.displayName,
+          createdAt: serverTimestamp()
+        });
+
+        await sendNotification(
+          t.assignedTo, 
+          'مهمة ذكية مخصصة لك! 🧠✨', 
+          `اقترح مستشار الذكاء الاصطناعي مهمة رائعة لك: "${t.title}" ومكافأتها ${t.points} نقطة! 🎉`, 
+          'task'
+        );
+
+        await triggerWebhook('automation', `🚀 [تفعيل آلي] تم جدولة مهمة ذكية للبطل "${t.assignedToName}": "${t.title}" بمكافأة ${t.points} نقطة.`);
+      }
+
+      alert(`تم اعتماد وجدولة ${parsedTasks.length} مهام سلوكية ذكية بنجاح! 🚀 لقد تم إشعار الأبطال فوراً.`);
+      setParsedTasks([]);
+    } catch (err) {
+      console.error(err);
+      alert('فشل في اعتماد بعض المهام، يرجى المحاولة لاحقاً.');
+    } finally {
+      setDeployingTasks(false);
+    }
+  };
+
   return (
     <div className="h-screen flex flex-col pb-24 bg-summer-bg">
-      <Header title="لحظات هدوء جميلة" profile={profile} />
+      <Header title="المستشار والرفيق الذكي" profile={profile} />
       
-      <div 
-        ref={scrollRef}
-        className="flex-1 overflow-y-auto p-6 space-y-4 scroll-smooth"
-      >
-        {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full text-center space-y-6 opacity-60">
-            <div className="w-24 h-24 bg-summer-accent/20 rounded-full flex items-center justify-center animate-pulse">
-               <Sparkles size={48} className="text-summer-accent" />
-            </div>
-            <div className="max-w-xs">
-              <h3 className="font-black text-summer-text text-lg mb-2">أنا رفيقكم العائلي الذكي</h3>
-              <p className="text-xs text-summer-text/60 leading-relaxed">اسألني عن نصائح تربوية، أفكار لمهام جديدة، أو كيف تحفز أطفالك اليوم!</p>
-            </div>
-          </div>
-        )}
+      {/* Segmented Tab Controls */}
+      <div className="px-6 pt-3 flex gap-2">
+        <button 
+          onClick={() => setActiveTab('chat')}
+          className={cn(
+            "flex-1 py-3 rounded-2xl text-xs font-black transition-all border",
+            activeTab === 'chat' 
+              ? "bg-summer-accent text-white border-summer-accent shadow-md" 
+              : "bg-white/10 text-summer-text border-white/10 hover:bg-white/20"
+          )}
+        >
+          💬 دردشة الرفيق التربوي
+        </button>
+        <button 
+          onClick={() => setActiveTab('profiler')}
+          className={cn(
+            "flex-1 py-3 rounded-2xl text-xs font-black transition-all border",
+            activeTab === 'profiler' 
+              ? "bg-summer-accent text-white border-summer-accent shadow-md" 
+              : "bg-white/10 text-summer-text border-white/10 hover:bg-white/20"
+          )}
+        >
+          🧠 فحص سلوكي ومهام ذكية
+        </button>
+      </div>
 
-        {messages.map((m, i) => (
-          <motion.div 
-            key={i}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className={cn(
-              "max-w-[85%] p-4 rounded-3xl text-sm font-medium leading-relaxed",
-              m.role === 'user' 
-                ? "bg-summer-accent text-white self-end mr-auto rounded-br-none shadow-lg" 
-                : "bg-white border border-white/40 text-summer-text self-start ml-auto rounded-bl-none shadow-sm"
+      {activeTab === 'chat' ? (
+        <>
+          <div 
+            ref={scrollRef}
+            className="flex-1 overflow-y-auto p-6 space-y-4 scroll-smooth"
+          >
+            {messages.length === 0 && (
+              <div className="flex flex-col items-center justify-center h-full text-center space-y-6 opacity-60">
+                <div className="w-20 h-20 bg-summer-accent/20 rounded-full flex items-center justify-center animate-pulse">
+                   <Sparkles size={42} className="text-summer-accent" />
+                </div>
+                <div className="max-w-xs">
+                  <h3 className="font-black text-summer-text text-md mb-2">أنا رفيقكم التربوي والذكي</h3>
+                  <p className="text-xs text-summer-text/60 leading-relaxed">أنا خبير في السلوك الإيجابي وعلم نفس الأطفال، اسألني أي سؤال لمساعدتك في التوجيه وتحفيز طفلك!</p>
+                </div>
+              </div>
             )}
-          >
-            {m.parts[0].text}
-          </motion.div>
-        ))}
-        {loading && (
-          <div className="bg-white/40 border border-white/20 p-4 rounded-3xl self-start ml-auto rounded-bl-none">
-            <Loader2 size={16} className="animate-spin text-summer-accent" />
-          </div>
-        )}
-      </div>
 
-      <div className="p-6 bg-summer-card border-t border-white/20">
-        <div className="flex gap-3">
-          <input 
-            placeholder="اكتب سؤالك هنا..."
-            className="flex-1 bg-white/40 border border-white/40 rounded-2xl px-5 py-4 text-sm text-summer-text outline-none focus:border-summer-accent/50 placeholder:text-summer-text/30"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-          />
-          <button 
-            onClick={sendMessage}
-            disabled={loading}
-            className="w-14 h-14 bg-summer-accent text-white rounded-2xl flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-all disabled:opacity-50"
-          >
-            <ArrowUpRight size={24} />
-          </button>
+            {messages.map((m, i) => (
+              <motion.div 
+                key={i}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={cn(
+                  "max-w-[85%] p-4 rounded-3xl text-sm font-medium leading-relaxed",
+                  m.role === 'user' 
+                    ? "bg-summer-accent text-white self-end mr-auto rounded-br-none shadow-lg" 
+                    : "bg-white border border-white/40 text-summer-text self-start ml-auto rounded-bl-none shadow-sm"
+                )}
+              >
+                {m.parts[0].text}
+              </motion.div>
+            ))}
+            {loading && (
+              <div className="bg-white/40 border border-white/20 p-4 rounded-3xl self-start ml-auto rounded-bl-none">
+                <Loader2 size={16} className="animate-spin text-summer-accent" />
+              </div>
+            )}
+          </div>
+
+          <div className="p-6 bg-summer-card border-t border-white/20">
+            <div className="flex gap-3">
+              <input 
+                placeholder="اكتب سؤالك التربوي هنا..."
+                className="flex-1 bg-white/40 border border-white/40 rounded-2xl px-5 py-4 text-sm text-summer-text outline-none focus:border-summer-accent/50 placeholder:text-summer-text/30"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+              />
+              <button 
+                onClick={sendMessage}
+                disabled={loading}
+                className="w-14 h-14 bg-summer-accent text-white rounded-2xl flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-all disabled:opacity-50"
+              >
+                <ArrowUpRight size={24} />
+              </button>
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          <div className="bg-summer-card p-6 rounded-[2.5rem] border border-white/40 shadow-xl space-y-4">
+            <div className="w-12 h-12 bg-summer-accent/10 rounded-2xl flex items-center justify-center text-summer-accent">
+              <Sparkles size={24} />
+            </div>
+            <h3 className="font-black text-summer-text">مستشار التحليل السلوكي الشامل 🧠🧭</h3>
+            <p className="text-xs text-summer-text/60 leading-relaxed">
+              يقوم هذا المحرك بقراءة مستويات نقاط أطفالك بالكامل، ومعدلات إنجازهم للمهام، بالإضافة لآخر الملاحظات السلوكية المسجلة، ليصنع لك تحليلاً نفسياً شاملاً لفرص التطوير، مع جدولة 3 مهام مخصصة تناسب مهارات طفلك بدقة مذهلة.
+            </p>
+            
+            <button 
+              onClick={handleRunProfiler}
+              disabled={profilerLoading}
+              className="w-full brand-gradient text-white py-4 rounded-2xl font-black hover:shadow-lg transition-all flex items-center justify-center gap-2"
+            >
+              {profilerLoading ? (
+                <>
+                  <Loader2 size={18} className="animate-spin" />
+                  جاري جمع البيانات وقراءة السلوك عائلياً...
+                </>
+              ) : (
+                'تشغيل الفحص والتحليل التربوي الفوري 🔍'
+              )}
+            </button>
+          </div>
+
+          {profileResult && (
+            <motion.div 
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-6 pb-6"
+            >
+              {/* Analysis Text Panel */}
+              <div className="bg-white border border-white/40 p-6 rounded-[2.5rem] shadow-md text-right space-y-4">
+                <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
+                  <div className="w-2.5 h-2.5 bg-summer-accent rounded-full animate-ping" />
+                  <h4 className="font-black text-summer-text text-sm">التوصيات والتحليل السلوكي للمستشار الذكي:</h4>
+                </div>
+                <div className="text-xs text-summer-text/80 leading-relaxed space-y-3 whitespace-pre-line">
+                  {profileResult.replace(/```json[\s\S]*?```/g, '')} {/* Hide raw JSON block from markdown render */}
+                </div>
+              </div>
+
+              {/* Parsed Recommended Tasks Action Panel */}
+              {parsedTasks.length > 0 && (
+                <div className="bg-amber-500/10 border-2 border-dashed border-amber-400/40 p-6 rounded-[2.5rem] space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Trophy className="text-amber-500" size={20} />
+                    <h4 className="font-black text-summer-text text-sm">المهام السلوكية الذكية المقترحة للأطفال:</h4>
+                  </div>
+                  <div className="space-y-3">
+                    {parsedTasks.map((task, idx) => (
+                      <div key={idx} className="bg-white p-4 rounded-2xl border border-amber-200 shadow-sm">
+                        <div className="flex justify-between items-start mb-1.5">
+                          <h5 className="font-black text-xs text-summer-text">{task.title}</h5>
+                          <span className="text-[10px] font-black bg-amber-400 text-white px-2 py-0.5 rounded-full">{task.points} نقطة</span>
+                        </div>
+                        <p className="text-[11px] text-summer-text/60 leading-relaxed mb-2">{task.description}</p>
+                        <div className="flex items-center gap-1.5 text-[10px] font-bold text-summer-accent">
+                          <span>البطل المكلف:</span>
+                          <span className="bg-summer-accent/10 px-2 py-0.5 rounded-lg">{task.assignedToName}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <button 
+                    onClick={handleDeployTasks}
+                    disabled={deployingTasks}
+                    className="w-full bg-amber-400 text-white py-4 rounded-2xl font-black hover:shadow-lg transition-all active:scale-[0.98] flex items-center justify-center gap-2 shadow-md"
+                  >
+                    {deployingTasks ? (
+                      <>
+                        <Loader2 size={18} className="animate-spin" />
+                        جاري إدراج وتفعيل المهام...
+                      </>
+                    ) : (
+                      'تفعيل وجدولة هذه المهام الذكية فوراً للأبطال 🚀'
+                    )}
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          )}
         </div>
-      </div>
+      )}
     </div>
   );
 };
@@ -3378,6 +3681,8 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
     } else {
       window.open(`https://wa.me/?text=${encodedText}`, '_blank');
     }
+
+    triggerWebhook('whatsapp', `🔔 تم إرسال تذكير واتساب للبطل "${name}" بخصوص المهمة: "${task.title}".`);
   };
 
   const addTask = async () => {
@@ -3414,6 +3719,9 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
         const body = `لقد تم تكليفك بمهمة من ${profile.displayName}: ${newTitle} والمكافأة ${rewardAmt} ${newRewardType === 'points' ? 'نقطة' : 'توكن'} ✨`;
         await sendNotification(newAssigned, title, body, 'task');
       }
+
+      const assignedName = assignedUser?.displayName || 'الجميع';
+      await triggerWebhook('automation', `🚀 تم إنشاء مهمة جديدة: "${newTitle.trim()}" مكلفة لـ ${assignedName} ومكافأتها ${rewardAmt} نقطة.`);
 
       if (sendWhatsAppOnCreate) {
         handleSendWhatsAppNewTask(
@@ -5431,15 +5739,27 @@ const WalletPage = ({ profile }: { profile: UserProfile }) => {
 
 const SettingsPage = ({ profile }: { profile: UserProfile }) => {
   const [rate, setRate] = useState(0.25);
+  const [webhookUrl, setWebhookUrl] = useState('');
   const [saving, setSaving] = useState(false);
   const [globalAppearance, setGlobalAppearance] = useState<any>(null);
+  const [automationLogs, setAutomationLogs] = useState<any[]>([]);
   const isParent = profile.role === 'parent';
 
   useEffect(() => {
     if (isParent) {
       getDoc(doc(db, 'config', 'family_settings')).then(snap => {
-        if (snap.exists()) setRate(snap.data().pointExchangeRate || 0.25);
+        if (snap.exists()) {
+          const data = snap.data();
+          setRate(data.pointExchangeRate || 0.25);
+          setWebhookUrl(data.webhookUrl || '');
+        }
       });
+
+      const qLogs = query(collection(db, 'automationLogs'), orderBy('createdAt', 'desc'), limit(15));
+      const unsub = onSnapshot(qLogs, (snap) => {
+        setAutomationLogs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      });
+      return () => unsub();
     }
   }, [isParent]);
 
@@ -5454,7 +5774,8 @@ const SettingsPage = ({ profile }: { profile: UserProfile }) => {
   const saveSettings = async () => {
     setSaving(true);
     await setDoc(doc(db, 'config', 'family_settings'), {
-      pointExchangeRate: Number(rate)
+      pointExchangeRate: Number(rate),
+      webhookUrl: webhookUrl.trim()
     }, { merge: true });
     setSaving(false);
     alert('تم حفظ الإعدادات بنجاح.');
@@ -5642,7 +5963,7 @@ const SettingsPage = ({ profile }: { profile: UserProfile }) => {
               </h3>
 
               <div className="space-y-4 pt-4 border-t border-white/10">
-                <h3 className="font-bold text-brand-text">إعدادات النقاط</h3>
+                <h3 className="font-bold text-brand-text text-sm">إعدادات النقاط</h3>
                 <p className="text-xs text-brand-text/40">حدد كم يعادل كل نقطة بالريال السعودي</p>
                 <div className="flex gap-4 items-center">
                   <input 
@@ -5650,18 +5971,67 @@ const SettingsPage = ({ profile }: { profile: UserProfile }) => {
                     step="0.01"
                     value={rate}
                     onChange={(e) => setRate(Number(e.target.value))}
-                    className="flex-1 bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-brand-text outline-none focus:border-brand-accent"
+                    className="flex-1 bg-white/20 border border-white/20 rounded-2xl px-5 py-4 text-brand-text outline-none focus:border-brand-accent text-sm"
                   />
-                  <span className="text-brand-text font-bold">ريال/نقطة</span>
+                  <span className="text-brand-text font-bold text-sm">ريال/نقطة</span>
+                </div>
+              </div>
+
+              {/* Webhook Configuration and Automation Center */}
+              <div className="space-y-4 pt-6 border-t border-white/10">
+                <div className="flex items-center gap-2">
+                  <Wand2 className="text-brand-accent" size={16} />
+                  <h3 className="font-bold text-brand-text text-sm">بوابة الأتمتة والربط الخارجي (Webhook API) 🌐</h3>
+                </div>
+                <p className="text-[11px] text-brand-text/50 leading-relaxed">
+                  اربط لوحة العائلة ببرامج خارقة (Make.com, Zapier, Twilio, Node-Red) لإرسال رسائل واتساب أو تنبيهات تلقائية تماماً بمجرد إنجاز المهام أو طلبها!
+                </p>
+                
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase text-brand-accent">عنوان الويب هوك المستهدف (Webhook Endpoint URL)</label>
+                  <input 
+                    type="url"
+                    placeholder="https://hook.us1.make.com/xxxxxxxxxxxx"
+                    value={webhookUrl}
+                    onChange={(e) => setWebhookUrl(e.target.value)}
+                    className="w-full bg-white/10 border border-white/20 rounded-2xl px-5 py-4 text-xs text-brand-text outline-none focus:border-brand-accent font-mono"
+                  />
+                </div>
+
+                {/* Live Logs Box */}
+                <div className="space-y-2 pt-2">
+                  <label className="text-[10px] font-black uppercase text-brand-text/50 flex items-center justify-between">
+                    <span>سجل الإرسال والأتمتة التلقائي (Live Dispatch Logs) ⚡</span>
+                    <span className="text-[8px] bg-brand-accent/20 text-brand-accent px-1.5 py-0.5 rounded-full">نظام الأتمتة نشط</span>
+                  </label>
+                  <div className="bg-black/40 border border-white/10 p-4 rounded-2xl h-48 overflow-y-auto font-mono text-[10px] space-y-2 text-right scrollbar-none">
+                    {automationLogs.length > 0 ? (
+                      automationLogs.map((log) => (
+                        <div key={log.id} className="border-b border-white/5 pb-1.5 last:border-0 flex justify-between items-start gap-4">
+                          <div className="flex-1">
+                            <span className="text-emerald-400 font-bold ml-1">[{log.type === 'whatsapp' ? 'واتساب' : log.type === 'automation' ? 'أتمتة' : 'رابط خارجي'}]</span>
+                            <span className="text-white/80">{log.message}</span>
+                          </div>
+                          <span className="text-white/30 text-[8px] whitespace-nowrap">
+                            {log.createdAt?.toDate?.()?.toLocaleTimeString('ar-SA') || 'منذ قليل'}
+                          </span>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="h-full flex items-center justify-center text-white/30 italic">
+                        بانتظار حدوث أول عملية إرسال أو أتمتة...
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
               <button 
                 onClick={saveSettings}
                 disabled={saving}
-                className="w-full brand-gradient text-white py-4 rounded-2xl font-black hover:shadow-lg transition-all disabled:opacity-50 shadow-lg"
+                className="w-full brand-gradient text-white py-4 rounded-2xl font-black hover:shadow-lg transition-all disabled:opacity-50 shadow-lg mt-4 text-sm"
               >
-                {saving ? 'جاري الحفظ...' : 'حفظ الإعدادات العامة'}
+                {saving ? 'جاري الحفظ...' : 'حفظ الإعدادات العامة والأتمتة ⚡'}
               </button>
             </section>
 
@@ -6911,6 +7281,15 @@ const MotivationPage = ({ profile }: { profile: UserProfile }) => {
   const [selectedMotivationShare, setSelectedMotivationShare] = useState<Motivation | null>(null);
   const isParent = profile.role === 'parent';
 
+  // Certificate portal state variables
+  const [subTab, setSubTab] = useState<'motivation' | 'certificate'>('motivation');
+  const [certChild, setCertChild] = useState('');
+  const [certTheme, setCertTheme] = useState<'royal' | 'star' | 'forest'>('royal');
+  const [certTitle, setCertTitle] = useState('البطل الملتزم والمثالي');
+  const [certPraise, setCertPraise] = useState('لتميزه الاستثنائي في تنظيم غرفته ومساعدة إخوته بكل حب وإيجابية خلال هذا الأسبوع.');
+  const [awardedCertificates, setAwardedCertificates] = useState<any[]>([]);
+  const [selectedCertificate, setSelectedCertificate] = useState<any | null>(null);
+
   useEffect(() => {
     const motivationsRef = collection(db, 'motivations');
     const qMotivations = isParent 
@@ -6929,12 +7308,68 @@ const MotivationPage = ({ profile }: { profile: UserProfile }) => {
       setFamily(snapshot.docs.map(doc => doc.data() as UserProfile));
     });
 
+    const qCert = query(collection(db, 'badges'), orderBy('awardedAt', 'desc'));
+    const unsubscribeCert = onSnapshot(qCert, (snapshot) => {
+      setAwardedCertificates(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
     return () => {
       unsubscribeMotivations();
       unsubscribeTemplates();
       unsubscribeFamily();
+      unsubscribeCert();
     };
-  }, []);
+  }, [isParent]);
+
+  const handleAwardCertificate = async () => {
+    if (!certChild || !certTitle || !certPraise) {
+      alert('يرجى اختيار العضو وكتابة عنوان ونص شهادة التميز');
+      return;
+    }
+    const child = family.find(f => f.uid === certChild);
+    if (!child) return;
+
+    try {
+      const colorMap = {
+        royal: 'bg-amber-400',
+        star: 'bg-yellow-400',
+        forest: 'bg-emerald-400'
+      };
+
+      await addDoc(collection(db, 'badges'), {
+        name: certTitle,
+        childId: certChild,
+        childName: child.displayName,
+        icon: 'Award',
+        color: colorMap[certTheme],
+        reason: certPraise,
+        theme: certTheme,
+        awardedAt: serverTimestamp()
+      });
+
+      await sendNotification(
+        certChild,
+        'تهانينا! لقد حصلت على شهادة شرف عائلية 🏆',
+        `لقد كرمك الأهل بشهادة تميز بعنوان "${certTitle}"! تفقد سجل الشهادات فوراً.`,
+        'motivation'
+      );
+
+      await triggerWebhook(
+        'automation',
+        `🏆 [تكريم خاص] تم منح شهادة تميز للأميرة/البطل "${child.displayName}" بعنوان: "${certTitle}".`
+      );
+
+      // WhatsApp share
+      const shareText = `🏆 شهادة شرف وتميز عائلية 🏆\n\nتتقدم العائلة الذكية بكل فخر واعتزاز إلى البطل الشجاع:\n✨ *${child.displayName}* ✨\n\nبمنحه هذه الشهادة الفاخرة تقديراً لـ:\n"${certPraise}"\n\nفخورين فيك دائماً يا بطل! ❤️👑🌟`;
+      const waUrl = `https://wa.me/?text=${encodeURIComponent(shareText)}`;
+      window.open(waUrl, '_blank');
+
+      alert('تم إصدار شهادة التميز وحفظها في ملف البطل بنجاح، وجاري مشاركتها عبر واتساب! 🎉');
+    } catch (e) {
+      console.error(e);
+      alert('فشل في إصدار الشهادة');
+    }
+  };
 
   const sendMotivation = async (msg: string) => {
     if (!selectedChild || !msg) {
@@ -7013,189 +7448,393 @@ const MotivationPage = ({ profile }: { profile: UserProfile }) => {
 
   return (
     <div className="pb-24 bg-summer-bg min-h-screen">
-      <Header title="المحفز الذكي" profile={profile} />
+      <Header title="المحفز وبوابة الشرف الذكية" profile={profile} />
       <div className="px-6 mt-6 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
         
-        {isParent && (
-          <section className="bg-summer-card p-6 rounded-3xl border border-white/40 shadow-xl space-y-6">
-            <div className="flex items-center gap-2">
-               <Zap className="text-summer-accent" size={20} />
-               <h3 className="font-bold text-summer-text">إرسال محفز عائلي</h3>
-            </div>
+        {/* Sub-Tab Selector */}
+        <div className="bg-summer-card p-1.5 rounded-2xl border border-white/20 flex gap-1 shadow-md">
+          <button 
+            onClick={() => setSubTab('motivation')}
+            className={cn(
+              "flex-1 py-3 rounded-xl text-xs font-black transition-all",
+              subTab === 'motivation' 
+                ? "bg-summer-accent text-white shadow-sm" 
+                : "text-summer-text/60 hover:bg-white/10"
+            )}
+          >
+            💬 رسائل الدعم والتحفيز
+          </button>
+          <button 
+            onClick={() => setSubTab('certificate')}
+            className={cn(
+              "flex-1 py-3 rounded-xl text-xs font-black transition-all",
+              subTab === 'certificate' 
+                ? "bg-summer-accent text-white shadow-sm" 
+                : "text-summer-text/60 hover:bg-white/10"
+            )}
+          >
+            🏆 شهادات الشرف والتميز عائلياً
+          </button>
+        </div>
 
-            <div className="space-y-4">
-               <div>
-                  <label className="text-[10px] font-black text-summer-text/40 uppercase tracking-widest px-1">لمن الرسالة؟</label>
-                  <div className="flex gap-2 mt-2 overflow-x-auto pb-2 scrollbar-none">
-                    {family.map(child => (
-                      <button 
-                        key={child.uid}
-                        onClick={() => setSelectedChild(child.uid)}
-                        className={cn(
-                          "px-4 py-3 rounded-2xl text-xs font-black transition-all border shrink-0",
-                          selectedChild === child.uid ? "bg-summer-accent text-white border-summer-accent shadow-lg" : "bg-white/10 text-summer-text border-white/10"
-                        )}
-                      >
-                        {child.displayName}
-                      </button>
-                    ))}
-                  </div>
-               </div>
+        {subTab === 'motivation' ? (
+          <>
+            {isParent && (
+              <section className="bg-summer-card p-6 rounded-3xl border border-white/40 shadow-xl space-y-6">
+                <div className="flex items-center gap-2">
+                   <Zap className="text-summer-accent" size={20} />
+                   <h3 className="font-bold text-summer-text">إرسال محفز عائلي</h3>
+                </div>
 
-               <div>
-                 <label className="text-[10px] font-black text-summer-text/40 uppercase tracking-widest px-1">اختر رسالة جاهزة</label>
-                 <div className="grid grid-cols-1 gap-2 mt-2">
-                    {templates.length > 0 ? templates.map(t => (
-                      <div key={t.id} className="flex gap-2">
+                <div className="space-y-4">
+                   <div>
+                      <label className="text-[10px] font-black text-summer-text/40 uppercase tracking-widest px-1">لمن الرسالة؟</label>
+                      <div className="flex gap-2 mt-2 overflow-x-auto pb-2 scrollbar-none">
+                        {family.map(child => (
+                          <button 
+                            key={child.uid}
+                            onClick={() => setSelectedChild(child.uid)}
+                            className={cn(
+                              "px-4 py-3 rounded-2xl text-xs font-black transition-all border shrink-0",
+                              selectedChild === child.uid ? "bg-summer-accent text-white border-summer-accent shadow-lg" : "bg-white/10 text-summer-text border-white/10"
+                            )}
+                          >
+                            {child.displayName}
+                          </button>
+                        ))}
+                      </div>
+                   </div>
+
+                   <div>
+                     <label className="text-[10px] font-black text-summer-text/40 uppercase tracking-widest px-1">اختر رسالة جاهزة</label>
+                     <div className="grid grid-cols-1 gap-2 mt-2">
+                        {templates.length > 0 ? templates.map(t => (
+                          <div key={t.id} className="flex gap-2">
+                            <button 
+                              onClick={() => sendMotivation(t.content)}
+                              className="flex-1 text-right bg-white/10 border border-white/10 p-4 rounded-xl text-xs text-summer-text hover:bg-summer-accent/10 hover:border-summer-accent transition-all"
+                            >
+                              {t.content}
+                            </button>
+                            <button onClick={() => deleteTemplate(t.id)} className="p-2 text-red-400 hover:text-red-600">
+                              <X size={16} />
+                            </button>
+                          </div>
+                        )) : defaultTemplates.map((msg, i) => (
+                          <button 
+                            key={i}
+                            onClick={() => sendMotivation(msg)}
+                            className="text-right bg-white/10 border border-white/10 p-4 rounded-xl text-xs text-summer-text hover:bg-summer-accent/10 hover:border-summer-accent transition-all"
+                          >
+                            {msg}
+                          </button>
+                        ))}
+                     </div>
+                   </div>
+
+                   <div className="space-y-2">
+                      <div className="flex justify-between items-center px-1">
+                         <label className="text-[10px] font-black text-summer-text/40 uppercase tracking-widest">أو اكتب رسالة مخصصة</label>
+                         <button 
+                           onClick={async () => {
+                              if (!selectedChild) return alert('اختر طفلاً أولاً');
+                              const child = family.find(f => f.uid === selectedChild);
+                              setCustomMsg('جاري كتابة رسالة ملهمة...');
+                              try {
+                                const data = await safeFetch('/api/ai', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({
+                                    prompt: `اكتب رسالة تحفيزية قصيرة جداً (بحدود 10 كلمات) للطفل ${child?.displayName} بناءً على روحه الجميلة واجتهاده اليوم. باللجة العربية الودودة.`,
+                                    systemInstruction: "أنت مساعد ذكي متخصص في إلهام الأطفال."
+                                  })
+                                });
+                                setCustomMsg(data.response);
+                              } catch {
+                                setCustomMsg('أنت بطل ورايع اليوم! استمر ✨');
+                              }
+                           }}
+                           className="text-[9px] font-black text-summer-primary flex items-center gap-1 hover:underline"
+                         >
+                           <Sparkles size={10} /> رسالة ذكية
+                         </button>
+                      </div>
+                      <div className="flex gap-2">
+                        <input 
+                          placeholder="رسالة إيجابية من قلبك..."
+                          className="flex-1 bg-white/10 border border-white/10 rounded-2xl px-5 py-4 text-xs text-summer-text outline-none focus:border-summer-accent"
+                          value={customMsg}
+                          onChange={(e) => setCustomMsg(e.target.value)}
+                        />
                         <button 
-                          onClick={() => sendMotivation(t.content)}
-                          className="flex-1 text-right bg-white/10 border border-white/10 p-4 rounded-xl text-xs text-summer-text hover:bg-summer-accent/10 hover:border-summer-accent transition-all"
+                          onClick={() => sendMotivation(customMsg)}
+                          className="bg-summer-accent text-white px-6 rounded-2xl shadow-lg active:scale-95 transition-all"
                         >
-                          {t.content}
-                        </button>
-                        <button onClick={() => deleteTemplate(t.id)} className="p-2 text-red-400 hover:text-red-600">
-                          <X size={16} />
+                          <Zap size={18} />
                         </button>
                       </div>
-                    )) : defaultTemplates.map((msg, i) => (
-                      <button 
-                        key={i}
-                        onClick={() => sendMotivation(msg)}
-                        className="text-right bg-white/10 border border-white/10 p-4 rounded-xl text-xs text-summer-text hover:bg-summer-accent/10 hover:border-summer-accent transition-all"
-                      >
-                        {msg}
-                      </button>
-                    ))}
-                 </div>
-               </div>
+                   </div>
 
-               <div className="space-y-2">
-                  <div className="flex justify-between items-center px-1">
-                     <label className="text-[10px] font-black text-summer-text/40 uppercase tracking-widest">أو اكتب رسالة مخصصة</label>
-                     <button 
-                       onClick={async () => {
-                          if (!selectedChild) return alert('اختر طفلاً أولاً');
-                          const child = family.find(f => f.uid === selectedChild);
-                          setCustomMsg('جاري كتابة رسالة ملهمة...');
+                   <button 
+                     onClick={() => setShowAddTemplate(!showAddTemplate)}
+                     className="text-[10px] font-bold text-summer-accent underline"
+                   >
+                     {showAddTemplate ? 'إلغاء' : 'إضافة رسالة للقائمة الجاهزة +'}
+                   </button>
+
+                   {showAddTemplate && (
+                     <div className="flex gap-2 animate-in fade-in duration-300">
+                        <input 
+                          placeholder="أضف رسالة جديدة للجوال..."
+                          className="flex-1 bg-white/20 border border-dashed border-white/40 rounded-xl px-4 py-2 text-xs text-summer-text outline-none"
+                          value={newTemplateMsg}
+                          onChange={(e) => setNewTemplateMsg(e.target.value)}
+                        />
+                        <button onClick={addTemplate} className="bg-summer-text text-white px-4 rounded-xl text-xs font-bold">حفظ</button>
+                     </div>
+                   )}
+                </div>
+              </section>
+            )}
+
+            <section className="space-y-4 pb-12">
+               <h3 className="text-sm font-bold text-summer-text/40 uppercase tracking-widest px-1">سجل الإيجابية 💎</h3>
+               <div className="space-y-4">
+                  {motivations.map(m => (
+                    <motion.div 
+                      key={m.id}
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      className="bg-summer-card p-5 rounded-3xl border border-white/20 shadow-lg flex items-start gap-4"
+                    >
+                      <div className="w-12 h-12 rounded-2xl bg-summer-accent/10 flex items-center justify-center text-summer-accent shrink-0">
+                        <Sparkles size={24} className="animate-pulse" />
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex justify-between items-start mb-2">
+                           <div>
+                             <p className="text-xs font-black text-summer-text">{m.userName}</p>
+                             <p className="text-[9px] text-summer-text/30">من: {m.senderName}</p>
+                           </div>
+                           <div className="flex items-center gap-2">
+                             <button 
+                               onClick={() => shareToWhatsApp(m)}
+                               className="p-2 bg-emerald-500/10 text-emerald-600 rounded-lg hover:bg-emerald-500/20 transition-all"
+                               title="مشاركة عبر واتساب"
+                             >
+                               <MessageCircle size={14} />
+                             </button>
+                             <button 
+                               onClick={() => setSelectedMotivationShare(m)}
+                               className="p-2 bg-summer-accent/10 text-summer-accent rounded-lg hover:bg-summer-accent/20 transition-all"
+                               title="تحويل لصورة"
+                             >
+                               <Share2 size={14} />
+                             </button>
+                             {(isParent || m.senderId === profile.uid) && (
+                               <button 
+                                 onClick={() => deleteMotivation(m.id)}
+                                 className="p-2 bg-red-500/10 text-red-500 rounded-lg hover:bg-red-500/20 transition-all"
+                                 title="حذف"
+                               >
+                                 <Trash2 size={14} />
+                               </button>
+                             )}
+                             <span className="text-[8px] text-summer-text/20 font-bold">{m.createdAt?.toDate?.()?.toLocaleTimeString('ar-SA')}</span>
+                           </div>
+                        </div>
+                        <div className="bg-white/10 p-4 rounded-2xl border border-white/5">
+                           <p className="text-sm font-bold text-summer-text leading-relaxed">"{m.message}"</p>
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
+                  {motivations.length === 0 && (
+                    <div className="text-center py-12 bg-white/10 rounded-3xl border border-dashed border-white/20">
+                      <Heart size={48} className="mx-auto text-summer-text/10 mb-4" />
+                      <p className="text-xs text-summer-text/30 font-bold text-center">لا توجد رسائل محفزة بعد. انشر الإيجابية اليوم!</p>
+                    </div>
+                  )}
+               </div>
+            </section>
+          </>
+        ) : (
+          <>
+            {/* Certificates Tab View */}
+            {isParent && (
+              <section className="bg-summer-card p-6 rounded-[2.5rem] border border-white/40 shadow-xl space-y-6">
+                <div className="flex items-center gap-2">
+                  <Award className="text-amber-500" size={22} />
+                  <h3 className="font-bold text-summer-text">مطبخ إصدار شهادات الشرف عائلياً 👑</h3>
+                </div>
+
+                <div className="space-y-4">
+                  {/* Select Child */}
+                  <div>
+                    <label className="text-[10px] font-black text-summer-text/40 uppercase tracking-widest px-1">اختر البطل المكرم:</label>
+                    <div className="flex gap-2 mt-2 overflow-x-auto pb-2 scrollbar-none">
+                      {family.map(child => (
+                        <button 
+                          key={child.uid}
+                          onClick={() => setCertChild(child.uid)}
+                          className={cn(
+                            "px-4 py-3 rounded-2xl text-xs font-black transition-all border shrink-0",
+                            certChild === child.uid ? "bg-amber-500 text-white border-amber-500 shadow-lg" : "bg-white/10 text-summer-text border-white/10"
+                          )}
+                        >
+                          {child.displayName}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Themes */}
+                  <div>
+                    <label className="text-[10px] font-black text-summer-text/40 uppercase tracking-widest px-1">طراز وتصميم الشهادة:</label>
+                    <div className="grid grid-cols-3 gap-2 mt-2">
+                      {[
+                        { id: 'royal', label: '👑 ملكي فاخر', color: 'bg-amber-400' },
+                        { id: 'star', label: '⭐ نجم ساطع', color: 'bg-indigo-900 text-white' },
+                        { id: 'forest', label: '🌴 غابة المغامرات', color: 'bg-emerald-400' }
+                      ].map(theme => (
+                        <button 
+                          key={theme.id}
+                          onClick={() => setCertTheme(theme.id as any)}
+                          className={cn(
+                            "py-3 rounded-xl text-[10px] font-black transition-all border",
+                            certTheme === theme.id ? "bg-summer-accent text-white border-summer-accent shadow-md" : "bg-white/10 text-summer-text border-white/10"
+                          )}
+                        >
+                          {theme.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Title */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-summer-text/40 uppercase tracking-widest px-1">عنوان التكريم العريض:</label>
+                    <input 
+                      type="text"
+                      className="w-full bg-white/10 border border-white/10 rounded-2xl px-5 py-4 text-xs text-summer-text outline-none focus:border-amber-500"
+                      value={certTitle}
+                      onChange={(e) => setCertTitle(e.target.value)}
+                      placeholder="مثال: البطل الملتزم والمثالي"
+                    />
+                  </div>
+
+                  {/* Wording / Reason */}
+                  <div className="space-y-1">
+                    <div className="flex justify-between items-center">
+                      <label className="text-[10px] font-black text-summer-text/40 uppercase tracking-widest px-1">نص التقدير ومبررات المنح:</label>
+                      <button 
+                        onClick={async () => {
+                          if (!certChild) return alert('اختر بطلاً أولاً');
+                          const child = family.find(f => f.uid === certChild);
+                          setCertPraise('جاري توليد صياغة ملهمة بالذكاء الاصطناعي...');
                           try {
                             const data = await safeFetch('/api/ai', {
                               method: 'POST',
                               headers: { 'Content-Type': 'application/json' },
                               body: JSON.stringify({
-                                prompt: `اكتب رسالة تحفيزية قصيرة جداً (بحدود 10 كلمات) للطفل ${child?.displayName} بناءً على روحه الجميلة واجتهاده اليوم. باللجة العربية الودودة.`,
-                                systemInstruction: "أنت مساعد ذكي متخصص في إلهام الأطفال."
+                                prompt: `اكتب نص تقديري بليغ ومحفز للأطفال باللغة العربية لشهادة شرف مخصصة للطفل ${child?.displayName} تقديراً لاجتهاده العظيم وصلاح خلقه هذا الأسبوع. (بحدود 15 كلمة).`,
+                                systemInstruction: "أنت كاتب بليغ وخبير تربوي ملهم."
                               })
                             });
-                            setCustomMsg(data.response);
+                            setCertPraise(data.response);
                           } catch {
-                            setCustomMsg('أنت بطل ورايع اليوم! استمر ✨');
+                            setCertPraise('لتميزه الاستثنائي وروحه الجميلة التي تنشر المحبة والنشاط والترتيب في المنزل.');
                           }
-                       }}
-                       className="text-[9px] font-black text-summer-primary flex items-center gap-1 hover:underline"
-                     >
-                       <Sparkles size={10} /> رسالة ذكية
-                     </button>
-                  </div>
-                  <div className="flex gap-2">
-                    <input 
-                      placeholder="رسالة إيجابية من قلبك..."
-                      className="flex-1 bg-white/10 border border-white/10 rounded-2xl px-5 py-4 text-xs text-summer-text outline-none focus:border-summer-accent"
-                      value={customMsg}
-                      onChange={(e) => setCustomMsg(e.target.value)}
+                        }}
+                        className="text-[9px] font-black text-amber-600 flex items-center gap-1 hover:underline"
+                      >
+                        <Sparkles size={10} /> صياغة ذكية
+                      </button>
+                    </div>
+                    <textarea 
+                      className="w-full bg-white/10 border border-white/10 rounded-2xl px-5 py-4 text-xs text-summer-text outline-none focus:border-amber-500 h-24 resize-none"
+                      value={certPraise}
+                      onChange={(e) => setCertPraise(e.target.value)}
+                      placeholder="اكتب مبررات التكريم بأسلوب مبهج ولطيف..."
                     />
-                    <button 
-                      onClick={() => sendMotivation(customMsg)}
-                      className="bg-summer-accent text-white px-6 rounded-2xl shadow-lg active:scale-95 transition-all"
+                  </div>
+
+                  {/* Dynamic Interactive Preview inside Admin panel */}
+                  <div className="pt-4 border-t border-white/10 space-y-2">
+                    <h4 className="text-[10px] font-black uppercase text-amber-500 tracking-wider">معاينة حية وتفاعلية لشهادة التكريم 👁️</h4>
+                    <CertificateCardPreview 
+                      title={certTitle} 
+                      name={family.find(f => f.uid === certChild)?.displayName || 'البطل المنتظر'} 
+                      reason={certPraise} 
+                      theme={certTheme} 
+                    />
+                  </div>
+
+                  <button 
+                    onClick={handleAwardCertificate}
+                    className="w-full bg-amber-500 text-white py-4 rounded-2xl font-black hover:shadow-lg transition-all active:scale-[0.98] flex items-center justify-center gap-2 text-sm"
+                  >
+                    <Award size={18} />
+                    إصدار الشهادة وتكريم البطل رسمياً ومشاركتها عبر واتساب 🚀
+                  </button>
+                </div>
+              </section>
+            )}
+
+            {/* Historical list of awarded Certificates of Honor */}
+            <section className="space-y-4 pb-12">
+              <h3 className="text-sm font-bold text-summer-text/40 uppercase tracking-widest px-1">رواق الشرف والشهادات التاريخية 🏛️⭐</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {awardedCertificates.map(cert => {
+                  const styleMap = {
+                    royal: 'from-amber-500/10 to-amber-100 border-amber-300 text-amber-900',
+                    star: 'from-indigo-950 to-indigo-900 border-indigo-700 text-yellow-400',
+                    forest: 'from-emerald-50 to-emerald-100 border-emerald-300 text-emerald-900'
+                  };
+                  const currentStyle = styleMap[cert.theme as 'royal' | 'star' | 'forest'] || styleMap.royal;
+
+                  return (
+                    <motion.div 
+                      key={cert.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      onClick={() => setSelectedCertificate(cert)}
+                      className={cn(
+                        "p-5 rounded-3xl border shadow-lg cursor-pointer hover:scale-[1.02] active:scale-95 transition-all flex flex-col justify-between h-44 bg-gradient-to-br",
+                        currentStyle
+                      )}
                     >
-                      <Zap size={18} />
-                    </button>
+                      <div>
+                        <div className="flex justify-between items-start">
+                          <span className="text-[8px] font-black uppercase tracking-widest opacity-60">شهادة تميز عائلية</span>
+                          <span className="text-[8px] bg-white/20 px-2 py-0.5 rounded-full font-bold">عرض التفاصيل</span>
+                        </div>
+                        <h4 className="font-black text-sm mt-2 line-clamp-1">{cert.name}</h4>
+                        <p className="text-[10px] opacity-75 mt-1 line-clamp-2">مهداة إلى: <span className="font-black underline">{cert.childName}</span></p>
+                        <p className="text-[9px] opacity-60 mt-1 line-clamp-2 leading-relaxed">"{cert.reason}"</p>
+                      </div>
+                      <div className="flex justify-between items-center text-[8px] opacity-50 border-t border-current/10 pt-2 mt-2">
+                        <span>تاريخ: {cert.awardedAt?.toDate?.()?.toLocaleDateString('ar-SA') || 'منذ قليل'}</span>
+                        <span className="font-black">العائلة الذكية 💎</span>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+
+                {awardedCertificates.length === 0 && (
+                  <div className="text-center py-12 bg-white/10 rounded-[2.5rem] border border-dashed border-white/20 col-span-full">
+                    <Award size={48} className="mx-auto text-summer-text/10 mb-4" />
+                    <p className="text-xs text-summer-text/30 font-bold text-center">لا توجد شهادات شرف مسجلة حالياً. أصدر أول شهادة وبادر بتكريم أبطالك!</p>
                   </div>
-               </div>
-
-               <button 
-                 onClick={() => setShowAddTemplate(!showAddTemplate)}
-                 className="text-[10px] font-bold text-summer-accent underline"
-               >
-                 {showAddTemplate ? 'إلغاء' : 'إضافة رسالة للقائمة الجاهزة +'}
-               </button>
-
-               {showAddTemplate && (
-                 <div className="flex gap-2 animate-in fade-in duration-300">
-                    <input 
-                      placeholder="أضف رسالة جديدة للجوال..."
-                      className="flex-1 bg-white/20 border border-dashed border-white/40 rounded-xl px-4 py-2 text-xs text-summer-text outline-none"
-                      value={newTemplateMsg}
-                      onChange={(e) => setNewTemplateMsg(e.target.value)}
-                    />
-                    <button onClick={addTemplate} className="bg-summer-text text-white px-4 rounded-xl text-xs font-bold">حفظ</button>
-                 </div>
-               )}
-            </div>
-          </section>
+                )}
+              </div>
+            </section>
+          </>
         )}
 
-        <section className="space-y-4 pb-12">
-           <h3 className="text-sm font-bold text-summer-text/40 uppercase tracking-widest px-1">سجل الإيجابية 💎</h3>
-           <div className="space-y-4">
-              {motivations.map(m => (
-                <motion.div 
-                  key={m.id}
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  className="bg-summer-card p-5 rounded-3xl border border-white/20 shadow-lg flex items-start gap-4"
-                >
-                  <div className="w-12 h-12 rounded-2xl bg-summer-accent/10 flex items-center justify-center text-summer-accent shrink-0">
-                    <Sparkles size={24} className="animate-pulse" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex justify-between items-start mb-2">
-                       <div>
-                         <p className="text-xs font-black text-summer-text">{m.userName}</p>
-                         <p className="text-[9px] text-summer-text/30">من: {m.senderName}</p>
-                       </div>
-                       <div className="flex items-center gap-2">
-                         <button 
-                           onClick={() => shareToWhatsApp(m)}
-                           className="p-2 bg-emerald-500/10 text-emerald-600 rounded-lg hover:bg-emerald-500/20 transition-all"
-                           title="مشاركة عبر واتساب"
-                         >
-                           <MessageCircle size={14} />
-                         </button>
-                         <button 
-                           onClick={() => setSelectedMotivationShare(m)}
-                           className="p-2 bg-summer-accent/10 text-summer-accent rounded-lg hover:bg-summer-accent/20 transition-all"
-                           title="تحويل لصورة"
-                         >
-                           <Share2 size={14} />
-                         </button>
-                         {(isParent || m.senderId === profile.uid) && (
-                           <button 
-                             onClick={() => deleteMotivation(m.id)}
-                             className="p-2 bg-red-500/10 text-red-500 rounded-lg hover:bg-red-500/20 transition-all"
-                             title="حذف"
-                           >
-                             <Trash2 size={14} />
-                           </button>
-                         )}
-                         <span className="text-[8px] text-summer-text/20 font-bold">{m.createdAt?.toDate?.()?.toLocaleTimeString('ar-SA')}</span>
-                       </div>
-                    </div>
-                    <div className="bg-white/10 p-4 rounded-2xl border border-white/5">
-                       <p className="text-sm font-bold text-summer-text leading-relaxed">"{m.message}"</p>
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
-              {motivations.length === 0 && (
-                <div className="text-center py-12 bg-white/10 rounded-3xl border border-dashed border-white/20">
-                  <Heart size={48} className="mx-auto text-summer-text/10 mb-4" />
-                  <p className="text-xs text-summer-text/30 font-bold text-center">لا توجد رسائل محفزة بعد. انشر الإيجابية اليوم!</p>
-                </div>
-              )}
-           </div>
-        </section>
       </div>
 
+      {/* Overlays / Share Modals */}
       <AnimatePresence>
         {selectedMotivationShare && (
           <MotivationCardShare 
@@ -7203,7 +7842,135 @@ const MotivationPage = ({ profile }: { profile: UserProfile }) => {
             onClose={() => setSelectedMotivationShare(null)} 
           />
         )}
+
+        {selectedCertificate && (
+          <CertificateModalViewer 
+            certificate={selectedCertificate} 
+            onClose={() => setSelectedCertificate(null)} 
+          />
+        )}
       </AnimatePresence>
+    </div>
+  );
+};
+
+// --- New Certificate Preview and Viewer Components ---
+
+const CertificateCardPreview = ({ title, name, reason, theme }: { title: string, name: string, reason: string, theme: 'royal' | 'star' | 'forest' }) => {
+  const themes = {
+    royal: {
+      bg: 'bg-gradient-to-br from-amber-500/15 via-amber-50 to-amber-500/5 border-amber-400',
+      text: 'text-amber-900',
+      accent: 'text-amber-700',
+      label: '👑 وسام الشرف الملكي 👑',
+      border: 'border-4 border-double border-amber-500'
+    },
+    star: {
+      bg: 'bg-gradient-to-br from-indigo-950 via-slate-900 to-indigo-950 border-yellow-400 text-white',
+      text: 'text-yellow-400',
+      accent: 'text-white/90',
+      label: '⭐ شهادة النجم الساطع ⭐',
+      border: 'border-4 border-double border-yellow-400'
+    },
+    forest: {
+      bg: 'bg-gradient-to-br from-emerald-500/10 via-emerald-50 to-emerald-500/5 border-emerald-400',
+      text: 'text-emerald-900',
+      accent: 'text-emerald-700',
+      label: '🌴 وسام غابة المغامرات الاستكشافية 🌴',
+      border: 'border-4 border-double border-emerald-500'
+    }
+  };
+
+  const active = themes[theme] || themes.royal;
+
+  return (
+    <div className={`p-6 rounded-[2.5rem] ${active.bg} ${active.border} shadow-2xl relative overflow-hidden font-sans text-center space-y-4 max-w-sm mx-auto border-8 transition-all duration-300`}>
+      {/* Background radial effects */}
+      <div className="absolute top-0 right-0 w-24 h-24 bg-yellow-400/5 rounded-full blur-2xl pointer-events-none" />
+      <div className="absolute bottom-0 left-0 w-24 h-24 bg-amber-500/5 rounded-full blur-2xl pointer-events-none" />
+
+      <div className="space-y-1">
+        <span className={`text-[9px] font-black tracking-widest uppercase ${active.text}`}>{active.label}</span>
+        <h2 className="text-lg font-black tracking-tight leading-snug">{title}</h2>
+      </div>
+
+      <div className="h-[1px] bg-gradient-to-r from-transparent via-current to-transparent opacity-30" />
+
+      <div className="space-y-3">
+        <p className="text-[9px] opacity-70">تتقدم العائلة الذكية بكل الحب والفخر والتقدير إلى البطل/الأميرة:</p>
+        <h3 className={`text-xl font-black ${active.text} tracking-wide drop-shadow-sm`}>{name}</h3>
+        <p className="text-[9px] opacity-70">لقاء جهوده الاستثنائية والمتميزة في:</p>
+        <p className="text-[11px] font-bold leading-relaxed px-2 max-w-xs mx-auto italic">
+          "{reason}"
+        </p>
+      </div>
+
+      <div className="h-[1px] bg-gradient-to-r from-transparent via-current to-transparent opacity-30" />
+
+      <div className="flex justify-between items-center px-2 pt-1">
+        <div className="text-right">
+          <p className="text-[7px] opacity-50">تاريخ الإصدار</p>
+          <p className="text-[9px] font-bold">{new Date().toLocaleDateString('ar-SA')}</p>
+        </div>
+        
+        {/* Stamp */}
+        <div className="w-12 h-12 rounded-full border-2 border-dashed border-amber-500 flex items-center justify-center rotate-12 bg-white/10 select-none">
+          <span className="text-[6px] font-black text-amber-600 tracking-tight uppercase">العائلة الذكية</span>
+        </div>
+
+        <div className="text-left">
+          <p className="text-[7px] opacity-50">توقيع المربي</p>
+          <p className="text-xs font-black italic text-amber-700 font-mono">Parent Admin</p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const CertificateModalViewer = ({ certificate, onClose }: { certificate: any, onClose: () => void }) => {
+  const shareCertificate = () => {
+    const text = `🏆 شهادة شرف وتميز عائلية 🏆\n\nتتقدم العائلة الذكية بكل فخر واعتزاز إلى البطل الشجاع:\n✨ *${certificate.childName}* ✨\n\nبمنحه هذه الشهادة الفاخرة تقديراً لـ:\n"${certificate.reason}"\n\nفخورين فيك دائماً يا بطل! ❤️👑🌟`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/80 backdrop-blur-md">
+      <motion.div 
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.9, opacity: 0 }}
+        className="w-full max-w-md bg-summer-card p-6 rounded-[2.5rem] border border-white/20 shadow-2xl space-y-6"
+      >
+        <div className="flex justify-between items-center">
+          <h3 className="font-black text-summer-text text-sm">عرض شهادة التكريم الرسمية 🌟</h3>
+          <button onClick={onClose} className="p-2 bg-white/10 rounded-full text-summer-text hover:bg-white/20">
+            <X size={16} />
+          </button>
+        </div>
+
+        <CertificateCardPreview 
+          title={certificate.name} 
+          name={certificate.childName} 
+          reason={certificate.reason} 
+          theme={certificate.theme || 'royal'} 
+        />
+
+        <div className="grid grid-cols-2 gap-3">
+          <button 
+            onClick={shareCertificate}
+            className="bg-emerald-500 text-white py-3 rounded-2xl font-black text-xs hover:shadow-lg transition-all flex items-center justify-center gap-1.5"
+          >
+            <MessageCircle size={14} />
+            مشاركة عبر واتساب
+          </button>
+          <button 
+            onClick={onClose}
+            className="bg-white/10 text-summer-text border border-white/20 py-3 rounded-2xl font-black text-xs hover:bg-white/20 transition-all"
+          >
+            إغلاق النافذة
+          </button>
+        </div>
+      </motion.div>
     </div>
   );
 };

@@ -22,6 +22,32 @@ async function startServer() {
     res.json({ status: "ok", env: process.env.NODE_ENV, time: new Date().toISOString() });
   });
 
+  // Webhook Dispatch Route
+  app.post("/api/webhook/dispatch", async (req, res) => {
+    try {
+      const { webhookUrl, payload } = req.body;
+      if (!webhookUrl) {
+        return res.status(400).json({ error: "Missing webhookUrl" });
+      }
+      
+      const response = await fetch(webhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      
+      const responseText = await response.text();
+      res.json({ 
+        success: response.ok, 
+        status: response.status, 
+        response: responseText 
+      });
+    } catch (error: any) {
+      console.error("Webhook forwarding error:", error);
+      res.status(500).json({ error: error.message || "Failed to dispatch webhook" });
+    }
+  });
+
   // Gemini AI Routes
   app.post("/api/ai", async (req, res) => {
     const maxRetries = 5;
