@@ -261,7 +261,9 @@
         "points": { "type": "number" },
         "status": { "type": "string", "enum": ["pending", "completed", "expired"] },
         "createdAt": { "type": "string", "format": "date-time" },
-        "completedAt": { "type": "string", "format": "date-time" }
+        "completedAt": { "type": "string", "format": "date-time" },
+        "category": { "type": "string" },
+        "isArchived": { "type": "boolean" }
       },
       "required": ["title", "userId", "date", "time", "endTime", "status", "createdAt"]
     }

@@ -232,5 +232,7 @@ export interface DailyTask {
   status: 'pending' | 'completed' | 'expired';
   createdAt: any;
   completedAt?: any;
+  category?: string;
+  isArchived?: boolean;
 }
 

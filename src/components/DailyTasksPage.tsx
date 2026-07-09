@@ -25,7 +25,12 @@ import {
   HelpCircle,
   User,
   Trash2,
-  CalendarCheck
+  CalendarCheck,
+  BookOpen,
+  Dumbbell,
+  Home,
+  Sparkles,
+  Archive
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -54,6 +59,61 @@ const getDatesForCurrentWeek = () => {
   return days;
 };
 
+const timeToMinutes = (t: string) => {
+  if (!t) return 0;
+  const [h, m] = t.split(':').map(Number);
+  return (h || 0) * 60 + (m || 0);
+};
+
+const formatArabicTime = (timeStr: string) => {
+  if (!timeStr) return '';
+  try {
+    const [hStr, mStr] = timeStr.split(':');
+    let hour = Number(hStr);
+    const minute = mStr || '00';
+    const ampm = hour >= 12 ? 'م' : 'ص';
+    hour = hour % 12;
+    hour = hour ? hour : 12; // '0' should be '12'
+    return `${hour}:${minute} ${ampm}`;
+  } catch (e) {
+    return timeStr;
+  }
+};
+
+const calculateDuration = (startTime: string, endTime: string) => {
+  if (!startTime || !endTime) return '';
+  const startMin = timeToMinutes(startTime);
+  const endMin = timeToMinutes(endTime);
+  let diff = endMin - startMin;
+  if (diff < 0) diff += 24 * 60; // wrap around for next day
+  
+  const hours = Math.floor(diff / 60);
+  const minutes = diff % 60;
+  
+  let result = '';
+  if (hours > 0) {
+    result += `${hours} ${hours === 1 ? 'ساعة' : hours === 2 ? 'ساعتين' : 'ساعات'}`;
+  }
+  if (minutes > 0) {
+    if (result) result += ' و ';
+    result += `${minutes} ${minutes === 1 ? 'دقيقة' : 'دقائق'}`;
+  }
+  return result || '0 دقيقة';
+};
+
+const getCategoryDetails = (categoryKey?: string) => {
+  switch (categoryKey) {
+    case 'educational':
+      return { label: 'تعليمي', icon: BookOpen, colorClass: 'text-blue-400 bg-blue-500/10 border-blue-500/20' };
+    case 'athletic':
+      return { label: 'رياضي', icon: Dumbbell, colorClass: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' };
+    case 'household':
+      return { label: 'منزلي', icon: Home, colorClass: 'text-purple-400 bg-purple-500/10 border-purple-500/20' };
+    default:
+      return { label: 'عام', icon: Sparkles, colorClass: 'text-amber-400 bg-amber-500/10 border-amber-500/20' };
+  }
+};
+
 interface DailyTasksPageProps {
   profile: UserProfile;
 }
@@ -63,6 +123,7 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
   const [familyMembers, setFamilyMembers] = useState<UserProfile[]>([]);
   const [selectedChildId, setSelectedChildId] = useState<string>(profile.role === 'parent' ? '' : profile.uid);
   const [selectedDay, setSelectedDay] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [viewMode, setViewMode] = useState<'list' | 'timeline' | 'archive'>('list');
   
   // New Task Form State
   const [newTaskTitle, setNewTaskTitle] = useState('');
@@ -70,29 +131,30 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
   const [newTaskEndTime, setNewTaskEndTime] = useState('13:00');
   const [newTaskDate, setNewTaskDate] = useState(new Date().toISOString().split('T')[0]);
   const [newTaskPoints, setNewTaskPoints] = useState<number>(5);
+  const [newTaskCategory, setNewTaskCategory] = useState<string>('educational');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
 
   const isParent = profile.role === 'parent';
   const weekDays = getDatesForCurrentWeek();
 
-  // Load family members if user is parent
+  // Load all family members (both parents and children)
   useEffect(() => {
-    if (!isParent) return;
     const q = query(collection(db, 'users'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const members = snapshot.docs.map(d => ({ uid: d.id, ...d.data() } as UserProfile));
-      const children = members.filter(m => m.role === 'child');
-      setFamilyMembers(children);
-      if (children.length > 0 && !selectedChildId) {
-        setSelectedChildId(children[0].uid);
+      setFamilyMembers(members);
+      if (members.length > 0 && !selectedChildId) {
+        // Default to first child if parent, or themselves if child/no-children
+        const firstChild = members.find(m => m.role === 'child');
+        setSelectedChildId(firstChild ? firstChild.uid : (profile.uid || members[0].uid));
       }
     });
     return () => unsubscribe();
-  }, [isParent]);
+  }, [profile.uid, selectedChildId]);
 
-  // Load Tasks for the active user/child
-  const targetUserId = isParent ? selectedChildId : profile.uid;
+  // Load Tasks for the active user/child/parent selected
+  const targetUserId = selectedChildId || profile.uid;
 
   useEffect(() => {
     if (!targetUserId) return;
@@ -152,13 +214,13 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
     setIsSubmitting(true);
 
     try {
-      const taskUserId = isParent ? selectedChildId : profile.uid;
+      const taskUserId = isParent ? (selectedChildId || profile.uid) : profile.uid;
       const taskUserName = isParent 
-        ? (familyMembers.find(m => m.uid === selectedChildId)?.displayName || 'بطل عائلي')
-        : (profile.displayName || 'بطل عائلي');
+        ? (familyMembers.find(m => m.uid === taskUserId)?.displayName || 'عضو عائلي')
+        : (profile.displayName || 'عضو عائلي');
 
       if (!taskUserId) {
-        setFormError('برجاء اختيار الطفل المستهدف أولاً!');
+        setFormError('برجاء اختيار العضو المستهدف أولاً!');
         setIsSubmitting(false);
         return;
       }
@@ -181,6 +243,8 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
         endTime: newTaskEndTime,
         points: Number(newTaskPoints) || 0,
         status: 'pending',
+        category: newTaskCategory,
+        isArchived: false,
         createdAt: serverTimestamp()
       });
 
@@ -220,11 +284,14 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
       // Find user to grant points
       const taskUserRef = doc(db, 'users', task.userId);
       const pointsDiff = task.points || 0;
+      
+      const targetMember = familyMembers.find(m => m.uid === task.userId);
+      const currentPoints = targetMember ? (targetMember.points || 0) : (task.userId === profile.uid ? profile.points : 0);
 
       if (newStatus === 'completed') {
         // Add real user points if task completed successfully
         await updateDoc(taskUserRef, {
-          points: (isParent ? (familyMembers.find(m => m.uid === task.userId)?.points || 0) : profile.points) + pointsDiff
+          points: currentPoints + pointsDiff
         });
 
         // Add real earn transaction
@@ -249,9 +316,6 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
         });
       } else {
         // Unchecked task - subtract points safely keeping user above 0
-        const currentPoints = isParent 
-          ? (familyMembers.find(m => m.uid === task.userId)?.points || 0)
-          : profile.points;
         const newPointsValue = Math.max(0, currentPoints - pointsDiff);
 
         await updateDoc(taskUserRef, {
@@ -272,7 +336,8 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
 
       await updateDoc(doc(db, 'dailyTasks', task.id), {
         status: newStatus,
-        completedAt: newStatus === 'completed' ? serverTimestamp() : null
+        completedAt: newStatus === 'completed' ? serverTimestamp() : null,
+        isArchived: newStatus === 'completed' ? true : false
       });
 
     } catch (error: any) {
@@ -300,8 +365,11 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
     }
   };
 
-  // Filter tasks to show for the selected day
-  const filteredTasks = tasks.filter(t => t.date === selectedDay);
+  // Filter tasks to show for the selected day (active tasks)
+  const filteredTasks = tasks.filter(t => t.date === selectedDay && !t.isArchived);
+
+  // Filter archived tasks for the selected day
+  const archivedTasks = tasks.filter(t => t.date === selectedDay && t.isArchived);
 
   // Compute Weekly Statistics
   // Filter all tasks belonging to the current week strip
@@ -343,27 +411,22 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
           </p>
         </div>
 
-        {/* Parent Selector / Indicator */}
-        {isParent ? (
-          <div className="z-10 bg-white/5 border border-white/10 px-4 py-3 rounded-2xl flex items-center gap-3">
-            <span className="text-xs font-bold text-amber-300">عرض أبطال العائلة:</span>
-            <select
-              value={selectedChildId}
-              onChange={(e) => setSelectedChildId(e.target.value)}
-              className="bg-slate-900 border border-white/20 text-white rounded-xl px-3 py-1.5 text-xs font-bold outline-none focus:border-amber-400"
-            >
-              <option value="" disabled>اختر البطل...</option>
-              {familyMembers.map(child => (
-                <option key={child.uid} value={child.uid}>{child.displayName}</option>
-              ))}
-            </select>
-          </div>
-        ) : (
-          <div className="z-10 bg-amber-500/15 border border-amber-500/20 px-4 py-3 rounded-2xl flex items-center gap-2.5">
-            <TrendingUp size={16} className="text-amber-400" />
-            <span className="text-xs font-black text-white">الملف الشخصي: {profile.displayName} 🌟</span>
-          </div>
-        )}
+        {/* Family Member Selector */}
+        <div className="z-10 bg-white/5 border border-white/10 px-4 py-3 rounded-2xl flex items-center gap-3">
+          <span className="text-xs font-bold text-amber-300">عرض جدول مهام:</span>
+          <select
+            value={selectedChildId || profile.uid}
+            onChange={(e) => setSelectedChildId(e.target.value)}
+            className="bg-slate-900 border border-white/20 text-white rounded-xl px-3 py-1.5 text-xs font-bold outline-none focus:border-amber-400 cursor-pointer"
+          >
+            <option value="" disabled>اختر العضو...</option>
+            {familyMembers.map(member => (
+              <option key={member.uid} value={member.uid}>
+                {member.displayName} {member.role === 'parent' ? '👨‍👩‍👦 (الوالدين)' : '👦 (البطل)'} {member.uid === profile.uid ? ' (أنت)' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {/* Weekly Evaluation Section */}
@@ -472,7 +535,7 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
               </div>
             </div>
 
-            <div className="space-y-1">
+            <div className="space-y-1 bg-white/5 p-4 rounded-2xl border border-white/5">
               <label className="text-[10px] text-white/50 font-bold flex justify-between">
                 <span>النقاط التحفيزية</span>
                 <span className="text-amber-400">{newTaskPoints} نقاط</span>
@@ -486,6 +549,36 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
                 onChange={(e) => setNewTaskPoints(Number(e.target.value))}
                 className="w-full accent-amber-500 cursor-pointer"
               />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-[10px] text-white/50 font-bold">تصنيف المهمة اليومية</label>
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  { id: 'educational', label: 'تعليمي', icon: BookOpen, color: 'border-blue-500/30 text-blue-400 hover:bg-blue-500/5' },
+                  { id: 'athletic', label: 'رياضي', icon: Dumbbell, color: 'border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/5' },
+                  { id: 'household', label: 'منزلي', icon: Home, color: 'border-purple-500/30 text-purple-400 hover:bg-purple-500/5' },
+                  { id: 'general', label: 'عام', icon: Sparkles, color: 'border-amber-500/30 text-amber-400 hover:bg-amber-500/5' },
+                ].map((cat) => {
+                  const CatIcon = cat.icon;
+                  const isSelected = newTaskCategory === cat.id;
+                  return (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => setNewTaskCategory(cat.id)}
+                      className={`py-2.5 px-1 rounded-xl border text-[10px] font-black flex flex-col items-center justify-center gap-1.5 transition-all outline-none ${
+                        isSelected
+                          ? 'bg-amber-500 border-amber-500 text-slate-950 shadow-md scale-105'
+                          : `bg-white/5 ${cat.color}`
+                      }`}
+                    >
+                      <CatIcon size={14} />
+                      <span>{cat.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             {formError && (
@@ -550,24 +643,174 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
         </div>
       </div>
 
-      {/* Tasks List */}
+      {/* View Switcher and Day Progress Tracker */}
+      <div className="bg-slate-900 border border-white/10 p-4 rounded-3xl flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => setViewMode('list')}
+            className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 outline-none ${
+              viewMode === 'list' 
+                ? 'bg-amber-500 text-slate-950 shadow-lg font-black' 
+                : 'text-white/60 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            📋 عرض قائمة المهام
+          </button>
+          <button
+            onClick={() => setViewMode('timeline')}
+            className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 outline-none ${
+              viewMode === 'timeline' 
+                ? 'bg-amber-500 text-slate-950 shadow-lg font-black' 
+                : 'text-white/60 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            ⏱️ مخطط المهام الزمني (الساعات)
+          </button>
+          <button
+            onClick={() => setViewMode('archive')}
+            className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 outline-none ${
+              viewMode === 'archive' 
+                ? 'bg-amber-500 text-slate-950 shadow-lg font-black' 
+                : 'text-white/60 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            📦 أرشيف اليوم ({archivedTasks.length})
+          </button>
+        </div>
+
+        {/* Day Specific Completion Progress */}
+        <div className="flex items-center gap-3">
+          <div className="text-right">
+            <span className="block text-[9px] text-white/40 font-bold">إنجاز اليوم المختار</span>
+            <span className="block text-xs font-black text-white">
+              {filteredTasks.filter(t => t.status === 'completed').length} من {filteredTasks.length} مكتملة
+            </span>
+          </div>
+          <div className="w-24 h-2 bg-white/5 border border-white/10 rounded-full overflow-hidden">
+            <div 
+              className="h-full bg-gradient-to-r from-amber-500 to-emerald-500 rounded-full transition-all duration-500"
+              style={{ 
+                width: `${filteredTasks.length > 0 
+                  ? Math.round((filteredTasks.filter(t => t.status === 'completed').length / filteredTasks.length) * 100) 
+                  : 0}%` 
+              }}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Tasks List Content */}
       <div className="space-y-4">
         <div className="flex justify-between items-center px-1">
           <span className="text-xs font-black text-white/50">
-            قائمة مهمات يوم {weekDays.find(d => d.dateString === selectedDay)?.dayName || 'المحدد'} ({selectedDay})
+            {viewMode === 'list' ? 'قائمة مهمات' : viewMode === 'timeline' ? 'المخطط الزمني لمهمات' : 'أرشيف مهمات'} يوم {weekDays.find(d => d.dateString === selectedDay)?.dayName || 'المحدد'} ({selectedDay})
           </span>
           <span className="text-xs text-amber-300 font-bold">
-            {filteredTasks.length} مهمات مجدولة
+            {viewMode === 'archive' ? `${archivedTasks.length} مؤرشفة` : `${filteredTasks.length} مهمات مجدولة`}
           </span>
         </div>
 
-        {filteredTasks.length === 0 ? (
+        {viewMode === 'archive' ? (
+          /* Archive list view */
+          archivedTasks.length === 0 ? (
+            <div className="bg-white/5 border border-white/5 p-12 text-center rounded-[2.5rem] space-y-2">
+              <Archive size={36} className="mx-auto text-white/20" />
+              <h5 className="font-bold text-white text-xs">لا توجد مهام مؤرشفة لهذا اليوم</h5>
+              <p className="text-[10px] text-white/40">عندما تنجز مهام اليوم أو تنتهي فترتها، ستؤرشف تلقائياً لتنظيف جدولك!</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <AnimatePresence mode="popLayout">
+                {archivedTasks.map((task) => {
+                  const isCompleted = task.status === 'completed';
+                  const cat = getCategoryDetails(task.category);
+                  const CatIcon = cat.icon;
+
+                  return (
+                    <motion.div
+                      key={task.id}
+                      layoutId={task.id}
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.95 }}
+                      className={`p-5 rounded-3xl border transition-all relative overflow-hidden flex items-center justify-between group ${
+                        isCompleted 
+                          ? 'bg-emerald-500/5 border-emerald-500/10'
+                          : 'bg-red-500/5 border-red-500/10 opacity-75'
+                      }`}
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className={`w-10 h-10 rounded-2xl flex items-center justify-center border ${
+                          isCompleted
+                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                            : 'bg-red-500/10 text-red-400 border-red-500/20'
+                        }`}>
+                          <Archive size={18} />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <div className={`p-1 rounded-md border text-[9px] flex items-center justify-center ${cat.colorClass}`} title={cat.label}>
+                              <CatIcon size={12} />
+                            </div>
+                            <h4 className={`font-black text-xs text-white/80 line-through`}>
+                              {task.title}
+                            </h4>
+                          </div>
+
+                          <div className="flex items-center gap-3 text-[10px] text-white/30 font-bold">
+                            <span className="flex items-center gap-1">
+                              <Clock size={12} />
+                              <span>{formatArabicTime(task.time)}</span>
+                            </span>
+                            <span>•</span>
+                            <span className={isCompleted ? 'text-emerald-400/60' : 'text-red-400/60'}>
+                              {isCompleted ? 'مكتملة ✓' : 'فائتة ⏳'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {/* Restore button */}
+                        <button
+                          onClick={async () => {
+                            try {
+                              await updateDoc(doc(db, 'dailyTasks', task.id), {
+                                isArchived: false,
+                                status: 'pending' // restore to pending so they can review it or re-complete it
+                              });
+                            } catch (err) {
+                              console.error(err);
+                            }
+                          }}
+                          className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-[10px] font-black text-white/60 hover:text-white transition-all"
+                          title="استعادة المهمة للمخطط النشط"
+                        >
+                          إلغاء الأرشفة ↩
+                        </button>
+
+                        <button
+                          onClick={() => handleDeleteTask(task.id)}
+                          className="p-2 text-white/20 hover:text-red-400 hover:bg-red-400/10 rounded-xl transition-all outline-none"
+                          title="حذف نهائي"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </AnimatePresence>
+            </div>
+          )
+        ) : filteredTasks.length === 0 ? (
           <div className="bg-white/5 border border-white/5 p-12 text-center rounded-[2.5rem] space-y-2">
             <HelpCircle size={36} className="mx-auto text-white/20" />
             <h5 className="font-bold text-white text-xs">لا توجد مهام في هذا اليوم</h5>
             <p className="text-[10px] text-white/40">استعمل الصندوق في الجهة اليسرى لإنشاء المهمات وترتيب جدولك فورياً!</p>
           </div>
-        ) : (
+        ) : viewMode === 'list' ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <AnimatePresence mode="popLayout">
               {filteredTasks.map((task) => {
@@ -612,19 +855,30 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
                       </button>
 
                       {/* Info layout */}
-                      <div className="space-y-1">
-                        <h4 className={`font-black text-xs text-white ${isCompleted ? 'line-through text-white/50' : ''}`}>
-                          {task.title}
-                        </h4>
+                      <div className="space-y-1.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {(() => {
+                            const cat = getCategoryDetails(task.category);
+                            const CatIcon = cat.icon;
+                            return (
+                              <div className={`p-1 rounded-md border text-[9px] flex items-center justify-center ${cat.colorClass}`} title={cat.label}>
+                                <CatIcon size={12} />
+                              </div>
+                            );
+                          })()}
+                          <h4 className={`font-black text-xs text-white ${isCompleted ? 'line-through text-white/50' : ''}`}>
+                            {task.title}
+                          </h4>
+                        </div>
                         
                         <div className="flex items-center gap-3 text-[10px] text-white/40 font-bold">
                           <span className="flex items-center gap-1 text-amber-400/80" title="الفترة الزمنية للمهمة">
                             <Clock size={12} />
-                            <span>{task.time}</span>
+                            <span>{formatArabicTime(task.time)}</span>
                             {task.endTime && (
                               <>
                                 <span className="text-white/30 font-normal">إلى</span>
-                                <span>{task.endTime}</span>
+                                <span>{formatArabicTime(task.endTime)}</span>
                               </>
                             )}
                           </span>
@@ -658,6 +912,193 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
                   </motion.div>
                 );
               })}
+            </AnimatePresence>
+          </div>
+        ) : (
+          /* Chronological Developed Timeline Chart View */
+          <div className="relative pr-8 mr-4 border-r-2 border-dashed border-white/10 space-y-6 py-4">
+            <AnimatePresence mode="popLayout">
+              {[...filteredTasks]
+                .sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time))
+                .map((task, index) => {
+                  const isCompleted = task.status === 'completed';
+                  const isExpired = task.status === 'expired';
+                  
+                  // Active detection: check if today's local time fits inside task slot
+                  const todayStr = new Date().toISOString().split('T')[0];
+                  const isTodaySelected = selectedDay === todayStr;
+                  const now = new Date();
+                  const currentMin = now.getHours() * 60 + now.getMinutes();
+                  const startMin = timeToMinutes(task.time);
+                  const endMin = timeToMinutes(task.endTime || task.time);
+                  const isActiveNow = isTodaySelected && !isCompleted && !isExpired && (currentMin >= startMin && currentMin <= endMin);
+
+                  const durationText = calculateDuration(task.time, task.endTime || task.time);
+
+                  // Find user details
+                  const assignee = familyMembers.find(m => m.uid === task.userId);
+                  const isAssigneeParent = assignee?.role === 'parent';
+
+                  return (
+                    <motion.div
+                      key={task.id}
+                      layoutId={task.id}
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, scale: 0.95 }}
+                      transition={{ delay: index * 0.05 }}
+                      className={`relative p-5 rounded-3xl border transition-all flex flex-col md:flex-row md:items-center justify-between gap-4 group ${
+                        isCompleted
+                          ? 'bg-emerald-500/10 border-emerald-500/20 shadow-md shadow-emerald-500/5'
+                          : isActiveNow
+                          ? 'bg-amber-500/10 border-amber-500/40 ring-2 ring-amber-500/20'
+                          : isExpired
+                          ? 'bg-red-500/5 border-red-500/10 opacity-70'
+                          : 'bg-white/5 border-white/10 hover:border-white/20'
+                      }`}
+                    >
+                      {/* Timeline Circular Bullet Node */}
+                      <div className="absolute right-[-41px] top-1/2 -translate-y-1/2 flex items-center justify-center z-10">
+                        <button
+                          onClick={() => handleToggleTask(task)}
+                          disabled={isExpired}
+                          className={`w-5 h-5 rounded-full border-2 transition-all outline-none flex items-center justify-center ${
+                            isCompleted
+                              ? 'bg-emerald-500 border-slate-900 shadow-lg text-slate-950'
+                              : isActiveNow
+                              ? 'bg-amber-500 border-slate-900 shadow-lg text-slate-950 animate-pulse'
+                              : isExpired
+                              ? 'bg-red-500 border-slate-900 text-slate-950'
+                              : 'bg-slate-950 border-white/40 hover:border-amber-400'
+                          }`}
+                          title={isCompleted ? 'تراجع عن الإنجاز' : 'اعتماد الإنجاز الفوري'}
+                        >
+                          {isCompleted ? (
+                            <Check size={10} className="stroke-[3]" />
+                          ) : isExpired ? (
+                            <XCircle size={10} />
+                          ) : (
+                            <div className="w-1.5 h-1.5 bg-white/60 rounded-full" />
+                          )}
+                        </button>
+                      </div>
+
+                      {/* Left Side: Time and Title */}
+                      <div className="flex flex-col md:flex-row md:items-center gap-4">
+                        {/* Elegant Time Badge Column */}
+                        <div className="flex flex-col items-start justify-center bg-slate-950 border border-white/5 px-3 py-2 rounded-2xl min-w-[120px] text-center font-sans">
+                          <span className="text-[10px] font-black text-amber-400">
+                            {formatArabicTime(task.time)}
+                          </span>
+                          {task.endTime && (
+                            <>
+                              <span className="text-[8px] text-white/30 my-0.5">إلى</span>
+                              <span className="text-[10px] font-black text-amber-400">
+                                {formatArabicTime(task.endTime)}
+                              </span>
+                            </>
+                          )}
+                        </div>
+
+                        {/* Title & Assignment Metadata */}
+                        <div className="space-y-1.5 text-right">
+                          <div className="flex items-center flex-wrap gap-2">
+                            {(() => {
+                              const cat = getCategoryDetails(task.category);
+                              const CatIcon = cat.icon;
+                              return (
+                                <div className={`p-1 rounded-md border text-[9px] flex items-center justify-center ${cat.colorClass}`} title={cat.label}>
+                                  <CatIcon size={12} />
+                                </div>
+                              );
+                            })()}
+                            <h4 className={`font-black text-sm text-white ${isCompleted ? 'line-through text-white/50' : ''}`}>
+                              {task.title}
+                            </h4>
+                            
+                            {/* Active indicator */}
+                            {isActiveNow && (
+                              <span className="text-[8px] font-black text-slate-900 bg-amber-400 px-2 py-0.5 rounded-full animate-bounce">
+                                نشط الآن ⚡
+                              </span>
+                            )}
+
+                            {/* Assignee pill */}
+                            <span className={`text-[8px] font-black px-2 py-0.5 rounded-md flex items-center gap-1 ${
+                              isAssigneeParent
+                                ? 'bg-purple-500/10 text-purple-300 border border-purple-500/20'
+                                : 'bg-blue-500/10 text-blue-300 border border-blue-500/20'
+                            }`}>
+                              <User size={10} />
+                              <span>{task.userName}</span>
+                              <span className="opacity-60 text-[7px]">
+                                ({isAssigneeParent ? 'الأهل' : 'البطل'})
+                              </span>
+                            </span>
+                          </div>
+
+                          <div className="flex items-center flex-wrap gap-3 text-[10px] text-white/40 font-bold">
+                            {durationText && (
+                              <span className="flex items-center gap-1 bg-white/5 px-2 py-0.5 rounded-md text-white/60">
+                                <Clock size={10} />
+                                المدة: {durationText}
+                              </span>
+                            )}
+
+                            {task.points > 0 && (
+                              <span className="flex items-center gap-1 text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-md">
+                                <Award size={10} />
+                                +{task.points} نقاط
+                              </span>
+                            )}
+
+                            {isCompleted ? (
+                              <span className="text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-md text-[9px] flex items-center gap-0.5">
+                                مكتملة بنجاح ✓
+                              </span>
+                            ) : isExpired ? (
+                              <span className="text-red-400 bg-red-400/10 px-2 py-0.5 rounded-md text-[9px] flex items-center gap-0.5">
+                                فائتة ومغلقة ⏳
+                              </span>
+                            ) : (
+                              <span className="text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded-md text-[9px] flex items-center gap-0.5 animate-pulse">
+                                بانتظار الإنجاز ⏳
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right Side: Quick Action and Delete Controls */}
+                      <div className="flex items-center justify-end gap-3 self-end md:self-auto pt-2 md:pt-0">
+                        {/* Complete button */}
+                        {!isExpired && (
+                          <button
+                            onClick={() => handleToggleTask(task)}
+                            className={`px-3 py-1.5 rounded-xl text-[10px] font-black transition-all flex items-center gap-1 ${
+                              isCompleted
+                                ? 'bg-white/10 text-white/60 hover:bg-white/15'
+                                : 'bg-emerald-500 text-slate-950 hover:bg-emerald-400 hover:scale-105'
+                            }`}
+                          >
+                            {isCompleted ? 'تراجع عن الإنجاز ↩' : 'أنجزت المهمة! 🎉'}
+                          </button>
+                        )}
+
+                        {/* Delete button */}
+                        {(isParent || (!isCompleted && !isExpired)) && (
+                          <button
+                            onClick={() => handleDeleteTask(task.id)}
+                            className="p-2 text-white/20 hover:text-red-400 hover:bg-red-400/10 rounded-xl transition-all outline-none md:opacity-0 group-hover:opacity-100"
+                            title="حذف المهمة"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
+                      </div>
+                    </motion.div>
+                  );
+                })}
             </AnimatePresence>
           </div>
         )}
