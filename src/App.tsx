@@ -3486,6 +3486,99 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
   const [transferingTask, setTransferingTask] = useState<Task | null>(null);
   const [transferTarget, setTransferTarget] = useState('');
 
+  const [tasksTab, setTasksTab] = useState<'active' | 'archive' | 'report'>('active');
+  const [selectedMemberUid, setSelectedMemberUid] = useState<string>('');
+  const [aiReportText, setAiReportText] = useState<string>('');
+  const [isGeneratingReport, setIsGeneratingReport] = useState<boolean>(false);
+  const [reportTaskStatusFilter, setReportTaskStatusFilter] = useState<string>('all');
+
+  const getMemberReportData = (member: UserProfile) => {
+    const memberTasks = tasks.filter(t => t.assignedTo === member.uid);
+    const approvedTasks = memberTasks.filter(t => t.status === 'approved');
+    const completedTasks = memberTasks.filter(t => t.status === 'completed');
+    const pendingTasks = memberTasks.filter(t => t.status === 'pending');
+    const expiredTasks = memberTasks.filter(t => t.status === 'expired');
+    const totalCount = memberTasks.length;
+    
+    const completedAndApproved = approvedTasks.length + completedTasks.length;
+    const completionRate = totalCount > 0 ? Math.round((approvedTasks.length / totalCount) * 100) : 0;
+    const successRate = totalCount > 0 ? Math.round((completedAndApproved / totalCount) * 100) : 0;
+    
+    const pointsEarned = approvedTasks.reduce((sum, t) => sum + (t.rewardType === 'points' || !t.rewardType ? (t.rewardAmount || t.points || 0) : 0), 0);
+    const tokensEarned = approvedTasks.reduce((sum, t) => sum + (t.rewardType === 'tokens' ? (t.rewardAmount || t.points || 0) : 0), 0);
+    
+    return {
+      memberTasks,
+      approvedTasks,
+      completedTasks,
+      pendingTasks,
+      expiredTasks,
+      totalCount,
+      completionRate,
+      successRate,
+      pointsEarned,
+      tokensEarned
+    };
+  };
+
+  const generateAIReport = async (member: UserProfile) => {
+    setIsGeneratingReport(true);
+    setAiReportText('');
+    
+    const reportData = getMemberReportData(member);
+    const taskDetails = reportData.memberTasks.map(t => {
+      const statusMap: Record<string, string> = {
+        approved: 'مكتملة ومقبولة',
+        completed: 'منجزة وبانتظار المراجعة',
+        pending: 'قائمة ومستمرة',
+        expired: 'ملغاة لعدم التنفيذ/منتهية الصلاحية',
+        rejected: 'مرفوضة وتحتاج تعديل'
+      };
+      return `- مهمة "${t.title}" وحالتها: ${statusMap[t.status] || t.status} وبقيمة ${t.rewardAmount || t.points} ${t.rewardType === 'tokens' ? 'توكن' : 'نقطة'}`;
+    }).join('\n');
+    
+    const prompt = `أنت خبير تربوي ومستشار نفسي للأطفال ومسؤول التوجيه العائلي في هذا التطبيق. 
+أرجو كتابة تقرير تربوي توجيهي ذكي، مشجع، وبليغ باللغة العربية الفصحى للابن/الابنة "${member.displayName}" (دوره: ${member.role === 'parent' ? 'أب/أم' : 'ابن/ابنة'}).
+
+إليك تفاصيل أدائه في المهام:
+- إجمالي المهام المكلّف بها: ${reportData.totalCount} مهمة.
+- المهام التي أنجزها واعتمدها الأهل: ${reportData.approvedTasks.length} مهمة.
+- المهام المنجزة وبانتظار المراجعة: ${reportData.completedTasks.length} مهمة.
+- المهام القائمة التي لم تبدأ أو مستمرة: ${reportData.pendingTasks.length} مهمة.
+- المهام الملغاة أو منتهية الصلاحية: ${reportData.expiredTasks.length} مهمة.
+- إجمالي النقاط المحققة من المهام المعتمدة: ${reportData.pointsEarned} نقطة و ${reportData.tokensEarned} توكن نادرة.
+
+قائمة المهام وحالتها بالتفصيل:
+${taskDetails || 'لا يوجد مهام مسجلة حتى الآن.'}
+
+الرجاء صياغة التقرير بأسلوب بليغ ومحفز جداً (بحدود 120 إلى 180 كلمة):
+1. ابدأ بعبارة تشجيعية دافئة تثني على جهود الطفل ونقاط قوته والتزامه.
+2. حلل أداءه بنظرة إيجابية وبناءة (مثلاً إذا كان لديه مهام ملغاة، قدم توجيهاً ودياً للتغلب على الكسل أو تحسين تنظيم الوقت بأسلوب محبب).
+3. اختتم بنصيحة تربوية ذهبية للمستقبل، ووسام شرف افتراضي (مثلاً: "وسام بطل الهمة والنشاط 🥇").
+4. استخدم التنسيق الجميل والرموز التعبيرية (Emojis) بشكل منسق ولطيف ومناسب للأطفال والأهل.`;
+
+    try {
+      const data = await safeFetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: prompt,
+          systemInstruction: "أنت مستشار عائلي تربوي ومساعد ذكي تلهم العائلات بأسلوب إيجابي ومحفز لبناء عادات عظيمة للأطفال."
+        })
+      });
+      if (data?.response) {
+        setAiReportText(data.response.trim());
+      } else {
+        setAiReportText('تعذر الحصول على استجابة من الذكاء الاصطناعي حالياً، يرجى المحاولة لاحقاً.');
+      }
+    } catch (e) {
+      console.error(e);
+      setAiReportText('حدث خطأ أثناء الاتصال بالذكاء الاصطناعي لمساعدتك في التقرير التربوي. يرجى المحاولة مجدداً.');
+    } finally {
+      setIsGeneratingReport(false);
+    }
+  };
+
   useEffect(() => {
     // Simply fetch all tasks to avoid any custom composite index requirements.
     // We sort and filter tasks client-side to ensure 100% resistance to index required errors.
@@ -3895,29 +3988,46 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
       
       <div className="px-6 mt-6 space-y-6">
         <div className="flex justify-between items-center px-1 mb-2">
-          <div className="flex bg-white/10 p-1 rounded-2xl border border-white/10 flex-1">
+          <div className="flex bg-white/10 p-1 rounded-2xl border border-white/10 flex-1 gap-1">
             <button 
-              onClick={() => setShowArchive(false)}
+              onClick={() => {
+                setTasksTab('active');
+                setShowArchive(false);
+              }}
               className={cn(
-                "flex-1 py-3 rounded-xl text-xs font-black transition-all",
-                !showArchive ? "bg-brand-accent text-white shadow-lg" : "text-brand-text/40 hover:text-brand-text"
+                "flex-1 py-3 rounded-xl text-[11px] sm:text-xs font-black transition-all",
+                tasksTab === 'active' ? "bg-brand-accent text-white shadow-lg" : "text-brand-text/40 hover:text-brand-text"
               )}
             >
               المهام النشطة
             </button>
             <button 
-              onClick={() => setShowArchive(true)}
+              onClick={() => {
+                setTasksTab('archive');
+                setShowArchive(true);
+              }}
               className={cn(
-                "flex-1 py-3 rounded-xl text-xs font-black transition-all",
-                showArchive ? "bg-brand-accent text-white shadow-lg" : "text-brand-text/40 hover:text-brand-text"
+                "flex-1 py-3 rounded-xl text-[11px] sm:text-xs font-black transition-all",
+                tasksTab === 'archive' ? "bg-brand-accent text-white shadow-lg" : "text-brand-text/40 hover:text-brand-text"
               )}
             >
               الأرشيف (مكتمل)
             </button>
+            <button 
+              onClick={() => {
+                setTasksTab('report');
+              }}
+              className={cn(
+                "flex-1 py-3 rounded-xl text-[11px] sm:text-xs font-black transition-all",
+                tasksTab === 'report' ? "bg-brand-accent text-white shadow-lg" : "text-brand-text/40 hover:text-brand-text"
+              )}
+            >
+              📊 تقرير الإنجاز
+            </button>
           </div>
         </div>
 
-        {!showArchive && (
+        {tasksTab === 'active' && (
           <button 
             onClick={() => setShowAdd(!showAdd)}
             className={cn(
@@ -4224,203 +4334,578 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
           )}
         </AnimatePresence>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {displayTasks.map((task) => (
-            <div key={task.id} className="bg-summer-card rounded-3xl border border-white/40 p-6 shadow-xl space-y-4 relative overflow-hidden group hover:border-summer-accent/30 transition-all">
-              {task.status === 'approved' && (
-                <div className="absolute top-0 right-0 px-10 py-1 bg-emerald-500 text-white text-[10px] font-black uppercase tracking-[0.2em] translate-x-1/3 translate-y-1/2 rotate-45 z-20">
-                  تمت المصادقة
+        {tasksTab === 'report' ? (
+          <div className="space-y-6 text-right" dir="rtl">
+            {/* Header / Intro Card */}
+            <div className="bg-brand-card/80 p-6 rounded-3xl border border-white/20 text-right space-y-2">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-amber-500/20 text-amber-400 rounded-2xl">
+                  <Trophy size={28} />
                 </div>
-              )}
-              
-              <div className="flex justify-between items-start">
-                <div className="flex-1">
-                   <div className="w-14 h-14 bg-white/30 rounded-2xl mb-4 flex items-center justify-center text-summer-accent group-hover:scale-110 transition-transform">
-                    <CheckSquare size={28} />
+                <div className="text-right">
+                  <h3 className="text-xl font-black text-brand-text">تقارير إنجاز أفراد العائلة 📊</h3>
+                  <p className="text-xs text-brand-text/60 font-bold">تتبع وتقييم سلوكيات ومهام أبنائك مع تحليلات تربوية بالذكاء الاصطناعي</p>
+                </div>
+              </div>
+            </div>
+
+            {selectedMemberUid === '' ? (
+              /* FAMILY OVERVIEW VIEW */
+              <div className="space-y-6">
+                <h4 className="text-sm font-black text-white px-1">اختر عضواً لاستعراض تقريره المفصل:</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {family.map((member) => {
+                    const data = getMemberReportData(member);
+                    return (
+                      <div 
+                        key={member.uid} 
+                        onClick={() => {
+                          setSelectedMemberUid(member.uid);
+                          setAiReportText('');
+                          setReportTaskStatusFilter('all');
+                        }}
+                        className="bg-brand-card rounded-3xl border border-white/20 p-5 shadow-xl hover:border-amber-500/40 hover:scale-[1.01] transition-all cursor-pointer flex flex-col justify-between text-right"
+                      >
+                        <div className="flex justify-between items-start mb-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-12 h-12 rounded-full bg-amber-500/20 border border-amber-500/40 flex items-center justify-center font-black text-amber-400 overflow-hidden">
+                              {member.photoURL ? (
+                                <img src={member.photoURL} alt={member.displayName} className="w-full h-full rounded-full object-cover" referrerPolicy="no-referrer" />
+                              ) : (
+                                member.displayName.charAt(0)
+                              )}
+                            </div>
+                            <div className="text-right">
+                              <h4 className="font-black text-white text-base">{member.displayName}</h4>
+                              <span className={cn(
+                                "text-[9px] px-2 py-0.5 rounded-full font-black",
+                                member.role === 'parent' ? "bg-indigo-500/20 text-indigo-300" : "bg-emerald-500/20 text-emerald-300"
+                              )}>
+                                {member.role === 'parent' ? 'أب/أم' : 'ابن/ابنة'}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="text-left">
+                            <div className="text-xs font-black text-white">الرصيد:</div>
+                            <div className="flex items-center gap-1 justify-end text-amber-400 font-bold">
+                              <span>{member.points || 0} ن</span>
+                              <span className="text-[10px] text-white/40">|</span>
+                              <span>{member.tokensBalance || 0} 🪙</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Middle: Progress indicators */}
+                        <div className="space-y-3 pt-2 border-t border-white/5 text-right">
+                          <div className="flex justify-between text-xs font-bold">
+                            <span className="text-white/60">نسبة الاعتماد النهائي (Approved)</span>
+                            <span className="text-emerald-400">{data.completionRate}%</span>
+                          </div>
+                          <div className="w-full bg-white/10 h-2.5 rounded-full overflow-hidden">
+                            <div 
+                              className="bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full transition-all" 
+                              style={{ width: `${data.completionRate}%` }}
+                            />
+                          </div>
+
+                          {/* Task count details */}
+                          <div className="grid grid-cols-4 gap-1 pt-1 text-center text-[10px] font-black">
+                            <div className="bg-white/5 p-2 rounded-xl">
+                              <span className="block text-white/50 text-[8px] mb-0.5">إجمالي</span>
+                              <span className="text-white text-xs">{data.totalCount}</span>
+                            </div>
+                            <div className="bg-emerald-500/10 p-2 rounded-xl text-emerald-400">
+                              <span className="block text-emerald-400/50 text-[8px] mb-0.5">معتمد</span>
+                              <span className="text-emerald-400 text-xs">{data.approvedTasks.length}</span>
+                            </div>
+                            <div className="bg-amber-500/10 p-2 rounded-xl text-amber-400">
+                              <span className="block text-amber-400/50 text-[8px] mb-0.5">منجز</span>
+                              <span className="text-amber-400 text-xs">{data.completedTasks.length}</span>
+                            </div>
+                            <div className="bg-indigo-500/10 p-2 rounded-xl text-indigo-300">
+                              <span className="block text-indigo-300/50 text-[8px] mb-0.5">مستمر</span>
+                              <span className="text-indigo-300 text-xs">{data.pendingTasks.length}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Click feedback footer */}
+                        <button className="w-full mt-4 py-2.5 rounded-xl bg-white/5 hover:bg-amber-500 hover:text-slate-950 transition-all font-black text-xs text-white flex items-center justify-center gap-2">
+                          <span>استعراض التقرير والتحليل الذكي</span>
+                          <span>←</span>
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              /* DETAILED MEMBER VIEW */
+              (() => {
+                const member = family.find(f => f.uid === selectedMemberUid);
+                if (!member) {
+                  setSelectedMemberUid('');
+                  return null;
+                }
+                const data = getMemberReportData(member);
+                
+                // Filter the tasks listed for this member
+                const filteredTasks = data.memberTasks.filter(t => {
+                  if (reportTaskStatusFilter === 'all') return true;
+                  return t.status === reportTaskStatusFilter;
+                });
+
+                return (
+                  <div className="space-y-6 text-right">
+                    {/* Back Button */}
+                    <button 
+                      onClick={() => {
+                        setSelectedMemberUid('');
+                        setAiReportText('');
+                      }}
+                      className="px-4 py-2 bg-white/10 text-white rounded-xl text-xs font-black hover:bg-white/20 transition-all flex items-center gap-2 mr-auto"
+                    >
+                      <span>→</span>
+                      <span>العودة لجميع الأعضاء</span>
+                    </button>
+
+                    {/* Member Profile Banner */}
+                    <div className="bg-brand-card rounded-3xl border border-white/20 p-6 flex flex-col sm:flex-row justify-between items-center gap-4 text-right">
+                      <div className="flex flex-col sm:flex-row items-center gap-4 w-full sm:w-auto">
+                        <div className="w-16 h-16 rounded-full bg-amber-500/20 border border-amber-500/40 flex items-center justify-center font-black text-amber-400 text-2xl overflow-hidden shrink-0">
+                          {member.photoURL ? (
+                            <img src={member.photoURL} alt={member.displayName} className="w-full h-full rounded-full object-cover" referrerPolicy="no-referrer" />
+                          ) : (
+                            member.displayName.charAt(0)
+                          )}
+                        </div>
+                        <div className="text-center sm:text-right">
+                          <h4 className="text-xl font-black text-white">{member.displayName}</h4>
+                          <div className="flex items-center gap-2 justify-center sm:justify-start mt-1 flex-wrap">
+                            <span className={cn(
+                              "text-xs px-2.5 py-0.5 rounded-full font-black",
+                              member.role === 'parent' ? "bg-indigo-500/20 text-indigo-300" : "bg-emerald-500/20 text-emerald-300"
+                            )}>
+                              {member.role === 'parent' ? 'أب/أم' : 'ابن/ابنة'}
+                            </span>
+                            {member.phoneNumber && (
+                              <span className="text-xs text-white/40 font-bold">💬 {member.phoneNumber}</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex gap-3 w-full sm:w-auto justify-center">
+                        <div className="bg-white/5 px-4 py-2.5 rounded-2xl text-center border border-white/10 min-w-[75px]">
+                          <span className="block text-[9px] text-white/40 font-bold">النقاط</span>
+                          <span className="text-amber-400 font-black text-sm">{member.points || 0} ن</span>
+                        </div>
+                        <div className="bg-white/5 px-4 py-2.5 rounded-2xl text-center border border-white/10 min-w-[75px]">
+                          <span className="block text-[9px] text-white/40 font-bold">التوكنز</span>
+                          <span className="text-amber-500 font-black text-sm">{member.tokensBalance || 0} 🪙</span>
+                        </div>
+                        <div className="bg-white/5 px-4 py-2.5 rounded-2xl text-center border border-white/10 min-w-[75px]">
+                          <span className="block text-[9px] text-white/40 font-bold">الإنجاز</span>
+                          <span className="text-emerald-400 font-black text-sm">{data.completionRate}%</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Stats Bento Grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
+                      <div className="bg-brand-card/50 p-4 rounded-2xl border border-white/10 space-y-1">
+                        <span className="text-white/40 text-[10px] font-black block">إجمالي التكليفات</span>
+                        <div className="text-2xl font-black text-white">{data.totalCount}</div>
+                        <span className="text-[9px] font-bold text-white/30 block">مهمة مسجلة</span>
+                      </div>
+                      <div className="bg-emerald-500/5 p-4 rounded-2xl border border-emerald-500/10 space-y-1">
+                        <span className="text-emerald-400/60 text-[10px] font-black block">معتمد وناجح ✅</span>
+                        <div className="text-2xl font-black text-emerald-400">{data.approvedTasks.length}</div>
+                        <span className="text-[9px] font-bold text-emerald-400/40 block">مكتملة ومصدّقة</span>
+                      </div>
+                      <div className="bg-amber-500/5 p-4 rounded-2xl border border-amber-500/10 space-y-1">
+                        <span className="text-amber-400/60 text-[10px] font-black block">بانتظار المراجعة ⏳</span>
+                        <div className="text-2xl font-black text-amber-400">{data.completedTasks.length}</div>
+                        <span className="text-[9px] font-bold text-amber-400/40 block">مرفوعة للأهل</span>
+                      </div>
+                      <div className="bg-indigo-500/5 p-4 rounded-2xl border border-indigo-500/10 space-y-1">
+                        <span className="text-indigo-400/60 text-[10px] font-black block">قائمة ومستمرة 📋</span>
+                        <div className="text-2xl font-black text-indigo-400">{data.pendingTasks.length}</div>
+                        <span className="text-[9px] font-bold text-indigo-400/40 block">نشطة في اللوحة</span>
+                      </div>
+                      <div className="bg-red-500/5 p-4 rounded-2xl border border-red-500/10 space-y-1">
+                        <span className="text-red-400/60 text-[10px] font-black block">ملغاة / فائتة ❌</span>
+                        <div className="text-2xl font-black text-red-400">{data.expiredTasks.length}</div>
+                        <span className="text-[9px] font-bold text-red-400/40 block">فائتة الصلاحية</span>
+                      </div>
+                    </div>
+
+                    {/* AI Smart Educational Evaluation Report */}
+                    <div className="bg-brand-card rounded-3xl border border-white/20 p-6 space-y-4">
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                        <div>
+                          <h4 className="font-black text-white text-base flex items-center gap-2 justify-start">
+                            <Sparkles size={18} className="text-amber-400 animate-pulse animate-duration-1000" />
+                            التقرير التربوي والتحليل الذكي بالذكاء الاصطناعي ✨
+                          </h4>
+                          <p className="text-[11px] text-white/50 font-bold">الذكاء الاصطناعي يحلل المهام وسلوك الطفل ويقدم نصائح تنموية بليغة للآباء</p>
+                        </div>
+                        <button
+                          onClick={() => generateAIReport(member)}
+                          disabled={isGeneratingReport || data.totalCount === 0}
+                          className="w-full sm:w-auto px-5 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/10 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:scale-100 cursor-pointer"
+                        >
+                          {isGeneratingReport ? (
+                            <>
+                              <div className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
+                              <span>جاري قراءة البيانات وصياغة التقرير...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles size={14} />
+                              <span>توليد التقرير التربوي الذكي 🧠</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+
+                      {data.totalCount === 0 && (
+                        <div className="text-xs text-amber-300 font-bold bg-amber-500/5 border border-amber-500/10 p-3.5 rounded-2xl">
+                          ⚠️ لا تتوفر مهام مسجلة لهذا العضو حتى الآن لتوليد تحليل تربوي دقيق. يرجى تكليفه بمهام أولاً!
+                        </div>
+                      )}
+
+                      {aiReportText && (
+                        <motion.div 
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-5 text-white/90 text-sm leading-relaxed space-y-4"
+                        >
+                          <div className="whitespace-pre-line font-medium leading-relaxed font-sans">{aiReportText}</div>
+                          
+                          {/* Share report with family via WhatsApp */}
+                          <div className="pt-3 border-t border-white/5 flex flex-wrap justify-end gap-3">
+                            <button
+                              onClick={() => {
+                                const message = `📝 *التقرير التربوي الذكي للبطل ${member.displayName}* 🌟\n\n${aiReportText}\n\nدمتم عائلة ملهمة ومترابطة! ❤️🏡👨‍👩‍👧‍👦`;
+                                const encodedText = encodeURIComponent(message);
+                                let phone = member.phoneNumber || '';
+                                phone = phone.replace(/[\s\+\-\(\)]/g, '');
+                                if (phone) {
+                                  if (phone.startsWith('0') && phone.length === 10) {
+                                    phone = '966' + phone.substring(1);
+                                  }
+                                  window.open(`https://wa.me/${phone}?text=${encodedText}`, '_blank');
+                                } else {
+                                  window.open(`https://wa.me/?text=${encodedText}`, '_blank');
+                                }
+                              }}
+                              className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-black text-xs flex items-center gap-2 transition-all cursor-pointer"
+                            >
+                              <span>💬 مشاركة التقرير مع الأبناء أو الأهل عبر الواتساب</span>
+                            </button>
+                            <button
+                              onClick={() => {
+                                navigator.clipboard.writeText(aiReportText);
+                                alert('تم نسخ التقرير التربوي بنجاح لعلبة النسخ! 📋');
+                              }}
+                              className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white font-black text-xs flex items-center gap-2 transition-all cursor-pointer"
+                            >
+                              <span>📋 نسخ النص</span>
+                            </button>
+                          </div>
+                        </motion.div>
+                      )}
+                    </div>
+
+                    {/* Member's Tasks List Report */}
+                    <div className="bg-brand-card rounded-3xl border border-white/20 p-6 space-y-4">
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                        <h4 className="font-black text-white text-base">
+                          📋 جميع مهام العضو ({member.displayName})
+                        </h4>
+                        
+                        {/* Status Filters */}
+                        <div className="flex flex-wrap gap-1.5 bg-white/5 p-1 rounded-2xl border border-white/10">
+                          {[
+                            { key: 'all', label: 'الجميع' },
+                            { key: 'approved', label: 'المعتمدة ✅' },
+                            { key: 'completed', label: 'بانتظار المراجعة ⏳' },
+                            { key: 'pending', label: 'قيد العمل 📝' },
+                            { key: 'expired', label: 'الملغاة ❌' }
+                          ].map(f => (
+                            <button
+                              key={f.key}
+                              onClick={() => setReportTaskStatusFilter(f.key)}
+                              className={cn(
+                                "px-3 py-1.5 rounded-xl text-[10px] font-black transition-all cursor-pointer",
+                                reportTaskStatusFilter === f.key 
+                                  ? "bg-amber-500 text-slate-950 shadow" 
+                                  : "text-brand-text/50 hover:text-brand-text"
+                              )}
+                            >
+                              {f.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Filtered Task Cards */}
+                      {filteredTasks.length === 0 ? (
+                        <div className="text-center py-8 text-xs text-brand-text/40 font-bold">
+                          لا توجد مهام مطابقة للتصنيف المحدد حالياً.
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {filteredTasks.map((task) => {
+                            const statusStyles: Record<string, { bg: string, text: string, label: string }> = {
+                              approved: { bg: 'bg-emerald-500/10 border-emerald-500/20', text: 'text-emerald-400', label: 'تمت الموافقة والاعتماد ✅' },
+                              completed: { bg: 'bg-amber-500/10 border-amber-500/20', text: 'text-amber-400', label: 'منجزة وبانتظار المراجعة ⏳' },
+                              pending: { bg: 'bg-indigo-500/10 border-indigo-500/20', text: 'text-indigo-400', label: 'قائمة ومستمرة 📝' },
+                              expired: { bg: 'bg-red-500/10 border-red-500/20', text: 'text-red-400', label: 'ملغاة/منتهية الصلاحية ❌' },
+                              rejected: { bg: 'bg-rose-500/10 border-rose-500/20', text: 'text-rose-400', label: 'طلب تعديل ومراجعة 📝' }
+                            };
+                            const st = statusStyles[task.status] || { bg: 'bg-white/5 border-white/10', text: 'text-white', label: task.status };
+
+                            return (
+                              <div 
+                                key={task.id}
+                                className={cn(
+                                  "p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all hover:bg-white/5 text-right",
+                                  st.bg
+                                )}
+                              >
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <h5 className="font-black text-white text-sm">{task.title}</h5>
+                                    <span className={cn("text-[8px] font-black px-2 py-0.5 rounded-full border", st.bg, st.text)}>
+                                      {st.label}
+                                    </span>
+                                  </div>
+                                  <p className="text-[10px] text-white/50 font-bold">
+                                    المُكلِّف: {task.createdByName || 'الأهل'} 
+                                    {task.completedAt && ` • تاريخ الإنجاز: ${new Date(task.completedAt.toDate?.() || task.completedAt).toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' })}`}
+                                  </p>
+                                </div>
+
+                                <div className="flex items-center gap-2 self-start sm:self-auto justify-end">
+                                  <div className={cn(
+                                    "px-3 py-1.5 rounded-xl text-[10px] font-black",
+                                    task.rewardType === 'tokens' ? "bg-amber-500 text-white" : "bg-brand-primary text-white"
+                                  )}>
+                                    {task.rewardAmount || task.points} {task.rewardType === 'tokens' ? 'توكن' : 'نقطة'}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 flex-wrap mb-1">
-                    <h4 className="text-xl font-bold text-summer-text group-hover:text-summer-accent transition-colors">{task.title}</h4>
-                    {task.recurrence && task.recurrence !== 'none' && (
-                      <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2.5 py-1 rounded-full font-bold flex items-center gap-1 border border-indigo-500/30">
-                        🔁 {{
-                          daily: 'مهمة يومية',
-                          weekly: 'مهمة أسبوعية',
-                          monthly: 'مهمة شهرية'
-                        }[task.recurrence]}
-                      </span>
+                );
+              })()
+            )}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {displayTasks.map((task) => (
+              <div key={task.id} className="bg-summer-card rounded-3xl border border-white/40 p-6 shadow-xl space-y-4 relative overflow-hidden group hover:border-summer-accent/30 transition-all">
+                {task.status === 'approved' && (
+                  <div className="absolute top-0 right-0 px-10 py-1 bg-emerald-500 text-white text-[10px] font-black uppercase tracking-[0.2em] translate-x-1/3 translate-y-1/2 rotate-45 z-20">
+                    تمت المصادقة
+                  </div>
+                )}
+                
+                <div className="flex justify-between items-start text-right">
+                  <div className="flex-1">
+                    <div className="w-14 h-14 bg-white/30 rounded-2xl mb-4 flex items-center justify-center text-summer-accent group-hover:scale-110 transition-transform">
+                      <CheckSquare size={28} />
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <h4 className="text-xl font-bold text-summer-text group-hover:text-summer-accent transition-colors">{task.title}</h4>
+                      {task.recurrence && task.recurrence !== 'none' && (
+                        <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2.5 py-1 rounded-full font-bold flex items-center gap-1 border border-indigo-500/30">
+                          🔁 {{
+                            daily: 'مهمة يومية',
+                            weekly: 'مهمة أسبوعية',
+                            monthly: 'مهمة شهرية'
+                          }[task.recurrence]}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-summer-text/50 line-clamp-2">بواسطة: {task.createdByName || family.find(f => f.uid === task.createdBy)?.displayName || 'الأهل'}</p>
+                    {task.status === 'expired' && (
+                      <div className="mt-2 flex flex-col gap-1">
+                        <div className="flex items-center gap-2 text-[10px] font-bold text-summer-accent">
+                          <span className="flex items-center gap-1">
+                            <Play size={10} />
+                            {task.startTime ? new Date(task.startTime).toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' }) : '--:--'}
+                          </span>
+                          <span>→</span>
+                          <span className="flex items-center gap-1">
+                            <Pause size={10} />
+                            {task.endTime ? new Date(task.endTime).toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' }) : '--:--'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1 text-[10px] font-black text-red-500 uppercase tracking-widest">
+                            <Clock size={10} />
+                            انتهى الوقت (تم الإلغاء)
+                          </div>
+                          {isParent && !task.penaltyApplied && (
+                            <button 
+                              onClick={() => applyPenalty(task)}
+                              className="bg-red-500 text-white px-3 py-1.5 rounded-full text-[9px] font-black hover:bg-red-600 transition-colors shadow-lg flex items-center gap-1 cursor-pointer"
+                            >
+                              <Zap size={10} />
+                              تطبيق الخصم
+                            </button>
+                          )}
+                          {task.penaltyApplied && (
+                            <div className="bg-red-500/10 text-red-500 px-3 py-1.5 rounded-full text-[9px] font-black flex items-center gap-1 border border-red-500/20">
+                              <Trash2 size={10} />
+                              تم الخصم (-{task.penaltyAmount})
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    {task.status !== 'expired' && (task.startTime || task.endTime) && (
+                      <div className="mt-2 flex flex-col gap-1">
+                        <div className="flex items-center gap-2 text-[10px] font-bold text-summer-accent">
+                          <span className="flex items-center gap-1">
+                            <Play size={10} />
+                            {task.startTime ? new Date(task.startTime).toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' }) : '--:--'}
+                          </span>
+                          <span>→</span>
+                          <span className="flex items-center gap-1">
+                            <Pause size={10} />
+                            {task.endTime ? new Date(task.endTime).toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' }) : '--:--'}
+                          </span>
+                        </div>
+                      </div>
                     )}
                   </div>
-                  <p className="text-xs text-summer-text/50 line-clamp-2">بواسطة: {task.createdByName || family.find(f => f.uid === task.createdBy)?.displayName || 'الأهل'}</p>
+                  <div className={cn(
+                    "px-4 py-2 rounded-xl font-black shadow-lg flex flex-col items-center justify-center min-w-[70px]",
+                    (task.rewardType || 'points') === 'tokens' ? "bg-amber-500 text-white" : "bg-summer-accent text-white"
+                  )}>
+                    <span className="text-sm">{task.rewardAmount || task.points}</span>
+                    <span className="text-[7px] uppercase tracking-tighter">{(task.rewardType || 'points') === 'tokens' ? 'توكن' : 'نقطة'}</span>
+                  </div>
+                  {isParent && (
+                    <button 
+                      onClick={() => startEdit(task)}
+                      className="absolute top-4 left-4 p-2 bg-white/20 rounded-xl text-summer-text/40 hover:text-summer-accent transition-colors cursor-pointer"
+                    >
+                      <Edit2 size={16} />
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-3 py-3 border-y border-white/20 text-right">
+                  <div className="w-10 h-10 bg-summer-primary/20 rounded-full flex items-center justify-center text-sm font-bold text-summer-primary">
+                    {task.assignedToName?.charAt(0)}
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-summer-text/30 uppercase tracking-widest font-bold">المكلف بها</p>
+                    <p className="text-sm font-bold text-summer-text">{task.assignedToName}</p>
+                  </div>
+                </div>
+
+                <div className="pt-2 flex gap-3 text-right">
+                  {task.status === 'completed' && isParent && (
+                    <div className="flex gap-3 w-full">
+                      <button 
+                        onClick={() => approveTask(task)}
+                        className="flex-1 summer-gradient text-white py-4 rounded-2xl font-black hover:shadow-lg transition-all active:scale-95 shadow-xl cursor-pointer"
+                      >
+                        موافقة ومنح {task.points} ن
+                      </button>
+                      <button 
+                        onClick={() => rejectTask(task)}
+                        className="w-16 bg-red-600/10 text-red-500 py-4 rounded-2xl font-black hover:bg-red-500 hover:text-white transition-all active:scale-95 border border-red-500/20 cursor-pointer"
+                        title="طلب تعديل"
+                      >
+                        <X size={20} className="mx-auto" />
+                      </button>
+                    </div>
+                  )}
+                  {task.status === 'pending' && isParent && (
+                    <div className="flex gap-3 w-full">
+                      <button 
+                        onClick={() => handleSendWhatsAppReminder(task)}
+                        className="px-4 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 py-4 rounded-2xl font-black transition-all active:scale-95 border border-emerald-500/20 flex items-center justify-center gap-2 cursor-pointer"
+                        title="إرسال تذكير واتساب"
+                      >
+                        <span>💬 تذكير واتساب</span>
+                      </button>
+                      <button 
+                        onClick={() => cancelTask(task)}
+                        className="flex-1 bg-red-600/10 text-red-500 hover:bg-red-500 hover:text-white border border-red-500/20 py-4 rounded-2xl font-black transition-all active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
+                      >
+                        <Trash2 size={16} />
+                        إلغاء وأرشفة
+                      </button>
+                    </div>
+                  )}
+                  {!isParent && task.status === 'pending' && (task.assignedTo === profile.uid || task.assignedTo === '') && (
+                    <div className="flex gap-3 w-full">
+                      <button 
+                        onClick={() => completeTask(task)}
+                        className="flex-1 bg-summer-primary text-white py-4 rounded-2xl font-black hover:bg-summer-primary/90 transition-all active:scale-95 shadow-lg cursor-pointer"
+                      >
+                        تأكيد الإنجاز 🧹
+                      </button>
+                      <button 
+                        onClick={() => handleSendWhatsAppReminder(task)}
+                        className="px-3.5 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 rounded-2xl font-black transition-all border border-emerald-500/20 flex items-center justify-center cursor-pointer"
+                        title="تذكير واتساب"
+                      >
+                        💬
+                      </button>
+                      <button 
+                        onClick={() => setTransferingTask(task)}
+                        className="w-16 bg-brand-accent/10 text-brand-accent py-4 rounded-2xl font-black hover:bg-brand-accent hover:text-white transition-all active:scale-95 border border-brand-accent/20 flex items-center justify-center cursor-pointer"
+                        title="تحويل المهمة لآخر"
+                      >
+                        <Handshake size={20} />
+                      </button>
+                    </div>
+                  )}
                   {task.status === 'expired' && (
-                    <div className="mt-2 flex flex-col gap-1">
-                      <div className="flex items-center gap-2 text-[10px] font-bold text-summer-accent">
-                        <span className="flex items-center gap-1">
-                          <Play size={10} />
-                          {task.startTime ? new Date(task.startTime).toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' }) : '--:--'}
-                        </span>
-                        <span>→</span>
-                        <span className="flex items-center gap-1">
-                          <Pause size={10} />
-                          {task.endTime ? new Date(task.endTime).toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' }) : '--:--'}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1 text-[10px] font-black text-red-500 uppercase tracking-widest">
-                           <Clock size={10} />
-                           انتهى الوقت (تم الإلغاء)
-                        </div>
-                        {isParent && !task.penaltyApplied && (
-                          <button 
-                            onClick={() => applyPenalty(task)}
-                            className="bg-red-500 text-white px-3 py-1.5 rounded-full text-[9px] font-black hover:bg-red-600 transition-colors shadow-lg flex items-center gap-1"
-                          >
-                             <Zap size={10} />
-                             تطبيق الخصم
-                          </button>
-                        )}
-                        {task.penaltyApplied && (
-                          <div className="bg-red-500/10 text-red-500 px-3 py-1.5 rounded-full text-[9px] font-black flex items-center gap-1 border border-red-500/20">
-                             <Trash2 size={10} />
-                             تم الخصم (-{task.penaltyAmount})
-                          </div>
-                        )}
-                      </div>
+                    <div className="flex-1 bg-red-500/10 text-red-600 py-4 rounded-2xl text-center font-bold text-xs border border-red-500/20 flex items-center justify-center gap-2 grayscale">
+                      <Clock size={14} />
+                      المهمة ملغاة (انتهى الوقت)
                     </div>
                   )}
-                  {task.status !== 'expired' && (task.startTime || task.endTime) && (
-                    <div className="mt-2 flex flex-col gap-1">
-                      <div className="flex items-center gap-2 text-[10px] font-bold text-summer-accent">
-                        <span className="flex items-center gap-1">
-                          <Play size={10} />
-                          {task.startTime ? new Date(task.startTime).toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' }) : '--:--'}
-                        </span>
-                        <span>→</span>
-                        <span className="flex items-center gap-1">
-                          <Pause size={10} />
-                          {task.endTime ? new Date(task.endTime).toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' }) : '--:--'}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-                <div className={cn(
-                  "px-4 py-2 rounded-xl font-black shadow-lg flex flex-col items-center justify-center min-w-[70px]",
-                  (task.rewardType || 'points') === 'tokens' ? "bg-amber-500 text-white" : "bg-summer-accent text-white"
-                )}>
-                  <span className="text-sm">{task.rewardAmount || task.points}</span>
-                  <span className="text-[7px] uppercase tracking-tighter">{(task.rewardType || 'points') === 'tokens' ? 'توكن' : 'نقطة'}</span>
-                </div>
-                {isParent && (
-                  <button 
-                    onClick={() => startEdit(task)}
-                    className="absolute top-4 left-4 p-2 bg-white/20 rounded-xl text-summer-text/40 hover:text-summer-accent transition-colors"
-                  >
-                    <Edit2 size={16} />
-                  </button>
-                )}
-              </div>
-
-              <div className="flex items-center gap-3 py-3 border-y border-white/20">
-                <div className="w-10 h-10 bg-summer-primary/20 rounded-full flex items-center justify-center text-sm font-bold text-summer-primary">
-                  {task.assignedToName?.charAt(0)}
-                </div>
-                <div>
-                  <p className="text-[10px] text-summer-text/30 uppercase tracking-widest font-bold">بواسطة</p>
-                  <p className="text-sm font-bold text-summer-text">{task.assignedToName}</p>
-                </div>
-              </div>
-
-              <div className="pt-2 flex gap-3">
-                {task.status === 'completed' && isParent && (
-                  <div className="flex gap-3 w-full">
-                    <button 
-                      onClick={() => approveTask(task)}
-                      className="flex-1 summer-gradient text-white py-4 rounded-2xl font-black hover:shadow-lg transition-all active:scale-95 shadow-xl"
-                    >
-                      موافقة ومنح {task.points} ن
-                    </button>
-                    <button 
-                      onClick={() => rejectTask(task)}
-                      className="w-16 bg-red-600/10 text-red-500 py-4 rounded-2xl font-black hover:bg-red-500 hover:text-white transition-all active:scale-95 border border-red-500/20"
-                      title="طلب تعديل"
-                    >
-                      <X size={20} className="mx-auto" />
-                    </button>
-                  </div>
-                )}
-                {task.status === 'pending' && isParent && (
-                  <div className="flex gap-3 w-full">
-                    <button 
-                      onClick={() => handleSendWhatsAppReminder(task)}
-                      className="px-4 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 py-4 rounded-2xl font-black transition-all active:scale-95 border border-emerald-500/20 flex items-center justify-center gap-2"
-                      title="إرسال تذكير واتساب"
-                    >
-                      <span>💬 تذكير واتساب</span>
-                    </button>
-                    <button 
-                      onClick={() => cancelTask(task)}
-                      className="flex-1 bg-red-600/10 text-red-500 hover:bg-red-500 hover:text-white border border-red-500/20 py-4 rounded-2xl font-black transition-all active:scale-95 flex items-center justify-center gap-2"
-                    >
-                      <Trash2 size={16} />
-                      إلغاء وأرشفة
-                    </button>
-                  </div>
-                )}
-                {!isParent && task.status === 'pending' && (task.assignedTo === profile.uid || task.assignedTo === '') && (
-                  <div className="flex gap-3 w-full">
-                    <button 
-                      onClick={() => completeTask(task)}
-                      className="flex-1 bg-summer-primary text-white py-4 rounded-2xl font-black hover:bg-summer-primary/90 transition-all active:scale-95 shadow-lg"
-                    >
-                      تأكيد الإنجاز 🧹
-                    </button>
-                    <button 
-                      onClick={() => handleSendWhatsAppReminder(task)}
-                      className="px-3.5 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 rounded-2xl font-black transition-all border border-emerald-500/20 flex items-center justify-center"
-                      title="تذكير واتساب"
-                    >
-                      💬
-                    </button>
-                    <button 
-                      onClick={() => setTransferingTask(task)}
-                      className="w-16 bg-brand-accent/10 text-brand-accent py-4 rounded-2xl font-black hover:bg-brand-accent hover:text-white transition-all active:scale-95 border border-brand-accent/20 flex items-center justify-center"
-                      title="تحويل المهمة لآخر"
-                    >
-                      <Handshake size={20} />
-                    </button>
-                  </div>
-                )}
-                {task.status === 'expired' && (
-                  <div className="flex-1 bg-red-500/10 text-red-600 py-4 rounded-2xl text-center font-bold text-xs border border-red-500/20 flex items-center justify-center gap-2 grayscale">
-                    <Clock size={14} />
-                    المهمة ملغاة (انتهى الوقت)
-                  </div>
-                )}
-                {task.status === 'completed' && !isParent && (
-                   <div className="flex-1 bg-emerald-500/10 text-emerald-600 py-4 rounded-2xl text-center font-bold text-xs border border-emerald-500/20 flex items-center justify-center gap-2">
+                  {task.status === 'completed' && !isParent && (
+                    <div className="flex-1 bg-emerald-500/10 text-emerald-600 py-4 rounded-2xl text-center font-bold text-xs border border-emerald-500/20 flex items-center justify-center gap-2">
                       <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
                       بانتظار مراجعة الأهل...
-                   </div>
-                )}
-                {task.status === 'approved' && (
-                   <div className="flex-1 bg-summer-accent/10 text-summer-accent py-4 rounded-2xl text-center font-black text-xs border border-summer-accent/20 flex items-center justify-center gap-2">
+                    </div>
+                  )}
+                  {task.status === 'approved' && (
+                    <div className="flex-1 bg-summer-accent/10 text-summer-accent py-4 rounded-2xl text-center font-black text-xs border border-summer-accent/20 flex items-center justify-center gap-2">
                       <Star size={14} />
                       تمت المهمة بنجاح 🏆
-                   </div>
-                )}
-                <div className="flex shrink-0">
-                  <TaskImageGenerator task={task} pointsValue={`${task.points} نقطة`} />
+                    </div>
+                  )}
+                  <div className="flex shrink-0">
+                    <TaskImageGenerator task={task} pointsValue={`${task.points} نقطة`} />
+                  </div>
                 </div>
-              </div>
-              
-              <TaskTimeline task={task} />
-              
-              {/* Family Reactions & Comments Toggle */}
-              <div className="pt-4 flex items-center justify-between border-t border-white/20">
-                 <div className="flex items-center gap-4">
+                
+                <TaskTimeline task={task} />
+                
+                {/* Family Reactions & Comments Toggle */}
+                <div className="pt-4 flex items-center justify-between border-t border-white/20">
+                  <div className="flex items-center gap-4">
                     <button className="flex items-center gap-1.5 text-[10px] font-black text-summer-text/30 hover:text-red-500 transition-colors group">
-                       <Heart size={14} className="group-active:scale-125 transition-transform" />
-                       <span>تفاعل</span>
+                      <Heart size={14} className="group-active:scale-125 transition-transform" />
+                      <span>تفاعل</span>
                     </button>
                     <button 
                       onClick={() => setShowComments(showComments === task.id ? null : task.id)}
@@ -4429,19 +4914,20 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
                         showComments === task.id ? "text-summer-accent" : "text-summer-text/30 hover:text-summer-text"
                       )}
                     >
-                       <MessageSquare size={14} />
-                       <span>تعليقات</span>
+                      <MessageSquare size={14} />
+                      <span>تعليقات</span>
                     </button>
-                 </div>
-                 <div className="text-[9px] font-bold text-summer-text/20 italic">
+                  </div>
+                  <div className="text-[9px] font-bold text-summer-text/20 italic font-sans">
                     آخر تحديث: {task.completedAt ? 'منذ قليل' : 'تم إنشاؤها مؤخراً'}
-                 </div>
-              </div>
+                  </div>
+                </div>
 
-              {showComments === task.id && <TaskComments taskId={task.id} profile={profile} />}
-            </div>
-          ))}
-        </div>
+                {showComments === task.id && <TaskComments taskId={task.id} profile={profile} />}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
