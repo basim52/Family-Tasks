@@ -250,7 +250,7 @@ service cloud.firestore {
     }
 
     match /config/{configId} {
-      allow get, list: if isSignedIn();
+      allow get, list: if true;
       allow write: if isParent();
     }
 
