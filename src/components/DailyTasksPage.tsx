@@ -10,7 +10,8 @@ import {
   serverTimestamp,
   orderBy
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { db, storage, handleFirestoreError, OperationType } from '../lib/firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { UserProfile, DailyTask } from '../types';
 import { 
   Plus, 
@@ -32,7 +33,10 @@ import {
   Sparkles,
   Archive,
   Edit2,
-  X
+  X,
+  Camera,
+  ImageIcon,
+  Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -169,6 +173,45 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
   const [editFormError, setEditFormError] = useState('');
   const [isGeneratingTask, setIsGeneratingTask] = useState(false);
   const [isGeneratingEditTask, setIsGeneratingEditTask] = useState(false);
+
+  const [newTaskImage, setNewTaskImage] = useState('');
+  const [uploadingTaskImage, setUploadingTaskImage] = useState(false);
+  const [editTaskImage, setEditTaskImage] = useState('');
+  const [uploadingEditTaskImage, setUploadingEditTaskImage] = useState(false);
+
+  const handleTaskImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingTaskImage(true);
+    try {
+      const storageRef = ref(storage, `dailyTaskImages/${Date.now()}_${file.name}`);
+      await uploadBytes(storageRef, file);
+      const url = await getDownloadURL(storageRef);
+      setNewTaskImage(url);
+    } catch (error) {
+      console.error("Daily Task Image Upload error:", error);
+      alert("حدث خطأ أثناء تحميل صورة المهمة");
+    } finally {
+      setUploadingTaskImage(false);
+    }
+  };
+
+  const handleEditTaskImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingEditTaskImage(true);
+    try {
+      const storageRef = ref(storage, `dailyTaskImages/${Date.now()}_${file.name}`);
+      await uploadBytes(storageRef, file);
+      const url = await getDownloadURL(storageRef);
+      setEditTaskImage(url);
+    } catch (error) {
+      console.error("Daily Edit Task Image Upload error:", error);
+      alert("حدث خطأ أثناء تحميل صورة المهمة المعدلة");
+    } finally {
+      setUploadingEditTaskImage(false);
+    }
+  };
 
   // Notification & WhatsApp Proximity States
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -446,6 +489,7 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
         status: 'pending',
         category: newTaskCategory,
         isArchived: false,
+        imageUrl: newTaskImage || null,
         createdAt: serverTimestamp()
       });
 
@@ -473,6 +517,7 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
       }
 
       setNewTaskTitle('');
+      setNewTaskImage('');
       // Keep selected day/time for seamless continuous entries
       alert('تم إضافة المهمة اليومية بنجاح بنظام الأوقات والتأكيد الفوري! 🎉');
     } catch (err: any) {
@@ -509,10 +554,12 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
         time: editTime,
         endTime: editEndTime,
         points: Number(editPoints) || 0,
-        category: editCategory
+        category: editCategory,
+        imageUrl: editTaskImage || null
       });
 
       setEditingTask(null);
+      setEditTaskImage('');
       alert('تم تحديث المهمة اليومية بنجاح! 🎉');
     } catch (err: any) {
       console.error(err);
@@ -1089,6 +1136,37 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
               </div>
             </div>
 
+            <div className="space-y-1.5">
+              <label className="text-[10px] text-white/50 font-bold block px-1">صورة المهمة اليومية 📸</label>
+              <label className="block bg-white/5 border border-white/10 border-dashed rounded-xl p-3.5 text-center cursor-pointer hover:border-amber-400/50 transition-all group">
+                 <input 
+                   type="file" 
+                   className="hidden" 
+                   accept="image/*"
+                   onChange={handleTaskImageUpload}
+                   disabled={uploadingTaskImage}
+                 />
+                 {uploadingTaskImage ? (
+                   <div className="flex flex-col items-center gap-1.5">
+                     <Loader2 className="animate-spin text-amber-400" size={20} />
+                     <span className="text-[10px] text-white/60 font-bold">جاري رفع الصورة...</span>
+                   </div>
+                 ) : newTaskImage ? (
+                   <div className="relative inline-block">
+                     <img src={newTaskImage} alt="Preview" className="w-20 h-20 object-cover rounded-lg shadow-md border border-white/10" referrerPolicy="no-referrer" />
+                     <div className="absolute -top-1.5 -right-1.5 bg-amber-500 text-slate-900 p-0.5 rounded-full shadow-md">
+                        <Camera size={10} />
+                     </div>
+                   </div>
+                 ) : (
+                   <div className="flex flex-col items-center gap-1 py-0.5">
+                      <ImageIcon size={22} className="text-white/30 group-hover:text-amber-400 transition-colors" />
+                      <span className="text-[10px] text-white/50 font-bold">اضغط لإرفاق أو تصوير صورة للمهمة</span>
+                   </div>
+                 )}
+              </label>
+            </div>
+
             <div className={`flex items-center justify-between px-4 py-3.5 rounded-2xl border transition-all duration-300 ${
               sendWhatsAppOnCreate 
                 ? 'bg-emerald-500/15 border-emerald-500/40 shadow-lg shadow-emerald-500/5' 
@@ -1385,6 +1463,17 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
                         )}
                       </button>
 
+                      {task.imageUrl && (
+                        <div className="w-12 h-12 rounded-xl overflow-hidden border border-white/10 shadow-sm shrink-0">
+                          <img 
+                            src={task.imageUrl} 
+                            alt={task.title} 
+                            className="w-full h-full object-cover"
+                            referrerPolicy="no-referrer"
+                          />
+                        </div>
+                      )}
+
                       {/* Info layout */}
                       <div className="space-y-1.5">
                         <div className="flex items-center gap-1.5 flex-wrap">
@@ -1453,6 +1542,7 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
                             setEditDate(task.date);
                             setEditPoints(task.points);
                             setEditCategory(task.category);
+                            setEditTaskImage(task.imageUrl || '');
                           }}
                           className="p-2 text-white/20 hover:text-amber-400 hover:bg-amber-400/10 rounded-xl transition-all outline-none md:opacity-0 group-hover:opacity-100"
                           title="تعديل المهمة"
@@ -1670,6 +1760,7 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
                               setEditDate(task.date);
                               setEditPoints(task.points);
                               setEditCategory(task.category);
+                              setEditTaskImage(task.imageUrl || '');
                             }}
                             className="p-2 text-white/20 hover:text-amber-400 hover:bg-amber-400/10 rounded-xl transition-all outline-none md:opacity-0 group-hover:opacity-100"
                             title="تعديل المهمة"
@@ -1835,6 +1926,37 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-xs text-white outline-none focus:border-amber-400 font-bold text-center font-sans"
                     />
                   </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] text-white/50 font-bold block px-1">صورة المهمة اليومية المعدلة 📸</label>
+                  <label className="block bg-white/5 border border-white/10 border-dashed rounded-xl p-3.5 text-center cursor-pointer hover:border-amber-400/50 transition-all group">
+                     <input 
+                       type="file" 
+                       className="hidden" 
+                       accept="image/*"
+                       onChange={handleEditTaskImageUpload}
+                       disabled={uploadingEditTaskImage}
+                     />
+                     {uploadingEditTaskImage ? (
+                       <div className="flex flex-col items-center gap-1.5">
+                         <Loader2 className="animate-spin text-amber-400" size={20} />
+                         <span className="text-[10px] text-white/60 font-bold">جاري رفع الصورة الجديدة...</span>
+                       </div>
+                     ) : editTaskImage ? (
+                       <div className="relative inline-block">
+                         <img src={editTaskImage} alt="Preview" className="w-20 h-20 object-cover rounded-lg shadow-md border border-white/10" referrerPolicy="no-referrer" />
+                         <div className="absolute -top-1.5 -right-1.5 bg-amber-500 text-slate-900 p-0.5 rounded-full shadow-md">
+                            <Camera size={10} />
+                         </div>
+                       </div>
+                     ) : (
+                       <div className="flex flex-col items-center gap-1 py-0.5">
+                          <ImageIcon size={22} className="text-white/30 group-hover:text-amber-400 transition-colors" />
+                          <span className="text-[10px] text-white/50 font-bold">اضغط لإرفاق أو تعديل صورة للمهمة</span>
+                       </div>
+                     )}
+                  </label>
                 </div>
 
                 {/* Action buttons */}

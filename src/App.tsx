@@ -3487,6 +3487,45 @@ const TasksPage = ({ profile }: { profile: UserProfile }) => {
   const [transferTarget, setTransferTarget] = useState('');
 
   const [tasksTab, setTasksTab] = useState<'active' | 'archive' | 'report'>('active');
+
+  const [newTaskImage, setNewTaskImage] = useState('');
+  const [uploadingTaskImage, setUploadingTaskImage] = useState(false);
+  const [editTaskImage, setEditTaskImage] = useState('');
+  const [uploadingEditTaskImage, setUploadingEditTaskImage] = useState(false);
+
+  const handleTaskImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingTaskImage(true);
+    try {
+      const storageRef = ref(storage, `taskImages/${Date.now()}_${file.name}`);
+      await uploadBytes(storageRef, file);
+      const url = await getDownloadURL(storageRef);
+      setNewTaskImage(url);
+    } catch (error) {
+      console.error("Task Image Upload error:", error);
+      alert("حدث خطأ أثناء تحميل صورة المهمة");
+    } finally {
+      setUploadingTaskImage(false);
+    }
+  };
+
+  const handleEditTaskImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingEditTaskImage(true);
+    try {
+      const storageRef = ref(storage, `taskImages/${Date.now()}_${file.name}`);
+      await uploadBytes(storageRef, file);
+      const url = await getDownloadURL(storageRef);
+      setEditTaskImage(url);
+    } catch (error) {
+      console.error("Edit Task Image Upload error:", error);
+      alert("حدث خطأ أثناء تحميل صورة المهمة المعدلة");
+    } finally {
+      setUploadingEditTaskImage(false);
+    }
+  };
   const [selectedMemberUid, setSelectedMemberUid] = useState<string>('');
   const [aiReportText, setAiReportText] = useState<string>('');
   const [isGeneratingReport, setIsGeneratingReport] = useState<boolean>(false);
@@ -3803,6 +3842,7 @@ ${taskDetails || 'لا يوجد مهام مسجلة حتى الآن.'}
         createdBy: profile.uid,
         createdByName: profile.displayName,
         recurrence: newRecurrence,
+        imageUrl: newTaskImage || null,
         createdAt: serverTimestamp(),
       });
 
@@ -3832,6 +3872,7 @@ ${taskDetails || 'لا يوجد مهام مسجلة حتى الآن.'}
       setNewEndTime('');
       setNewAssigned('');
       setNewRecurrence('none');
+      setNewTaskImage('');
       setShowAdd(false);
       alert('تمت إضافة المهمة بنجاح! 🎉');
     } catch (error) {
@@ -3855,6 +3896,7 @@ ${taskDetails || 'لا يوجد مهام مسجلة حتى الآن.'}
       startTime: editStartTime || null,
       endTime: editEndTime || null,
       recurrence: editRecurrence,
+      imageUrl: editTaskImage || null,
     });
 
     // Notify Child if reassigned
@@ -3863,6 +3905,7 @@ ${taskDetails || 'لا يوجد مهام مسجلة حتى الآن.'}
     }
 
     setEditingTask(null);
+    setEditTaskImage('');
   };
 
   const startEdit = (task: Task) => {
@@ -3874,6 +3917,19 @@ ${taskDetails || 'لا يوجد مهام مسجلة حتى الآن.'}
     setEditStartTime(task.startTime || '');
     setEditEndTime(task.endTime || '');
     setEditRecurrence(task.recurrence || 'none');
+    setEditTaskImage(task.imageUrl || '');
+  };
+
+  const deleteTask = async (taskId: string) => {
+    if (window.confirm('هل أنت متأكد من رغبتك في حذف هذه المهمة نهائياً؟')) {
+      try {
+        await deleteDoc(doc(db, 'tasks', taskId));
+        alert('تم حذف المهمة بنجاح! 🗑️');
+      } catch (error) {
+        console.error('Failed to delete task:', error);
+        alert('حدث خطأ أثناء محاولة حذف المهمة');
+      }
+    }
   };
 
   const approveTask = async (task: Task) => {
@@ -4139,6 +4195,37 @@ ${taskDetails || 'لا يوجد مهام مسجلة حتى الآن.'}
                   }} />
                 </div>
 
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-brand-text/40 uppercase tracking-widest block px-1">صورة توضيحية للمهمة 📸</label>
+                  <label className="block bg-white/5 border border-white/20 border-dashed rounded-2xl p-4 text-center cursor-pointer hover:border-brand-accent/50 transition-all group">
+                     <input 
+                       type="file" 
+                       className="hidden" 
+                       accept="image/*"
+                       onChange={handleTaskImageUpload}
+                       disabled={uploadingTaskImage}
+                     />
+                     {uploadingTaskImage ? (
+                       <div className="flex flex-col items-center gap-2">
+                         <Loader2 className="animate-spin text-brand-accent animate-duration-1000" />
+                         <span className="text-xs text-white/60 font-bold">جاري رفع الصورة...</span>
+                       </div>
+                     ) : newTaskImage ? (
+                       <div className="relative inline-block">
+                         <img src={newTaskImage} alt="Preview" className="w-24 h-24 object-cover rounded-xl shadow-lg border border-white/20" referrerPolicy="no-referrer" />
+                         <div className="absolute -top-2 -right-2 bg-brand-accent text-white p-1 rounded-full shadow-md">
+                            <Camera size={12} />
+                         </div>
+                       </div>
+                     ) : (
+                       <div className="flex flex-col items-center gap-1.5 py-1">
+                          <ImageIcon size={28} className="text-white/30 group-hover:text-brand-accent transition-colors" />
+                          <span className="text-xs text-white/50 font-bold">اضغط لإرفاق أو تصوير صورة توضيحية للمهمة</span>
+                       </div>
+                     )}
+                  </label>
+                </div>
+
                 <div className={`flex items-center justify-between px-4 py-3.5 rounded-2xl border transition-all duration-300 ${
                   sendWhatsAppOnCreate 
                     ? 'bg-emerald-500/15 border-emerald-500/40 shadow-lg shadow-emerald-500/5' 
@@ -4323,6 +4410,38 @@ ${taskDetails || 'لا يوجد مهام مسجلة حتى الآن.'}
                     <option value="monthly" className="bg-summer-card text-summer-text">شهرياً (تكرار تلقائي بعد الاعتماد)</option>
                   </select>
                 </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-summer-text/40 uppercase tracking-widest block px-1">صورة المهمة المعدلة 📸</label>
+                  <label className="block bg-white/5 border border-white/20 border-dashed rounded-2xl p-4 text-center cursor-pointer hover:border-summer-accent/50 transition-all group">
+                     <input 
+                       type="file" 
+                       className="hidden" 
+                       accept="image/*"
+                       onChange={handleEditTaskImageUpload}
+                       disabled={uploadingEditTaskImage}
+                     />
+                     {uploadingEditTaskImage ? (
+                       <div className="flex flex-col items-center gap-2">
+                         <Loader2 className="animate-spin text-summer-accent animate-duration-1000" />
+                         <span className="text-xs text-white/60 font-bold">جاري رفع الصورة الجديدة...</span>
+                       </div>
+                     ) : editTaskImage ? (
+                       <div className="relative inline-block">
+                         <img src={editTaskImage} alt="Preview" className="w-24 h-24 object-cover rounded-xl shadow-lg border border-white/20" referrerPolicy="no-referrer" />
+                         <div className="absolute -top-2 -right-2 bg-summer-accent text-white p-1 rounded-full shadow-md">
+                            <Camera size={12} />
+                         </div>
+                       </div>
+                     ) : (
+                       <div className="flex flex-col items-center gap-1.5 py-1">
+                          <ImageIcon size={28} className="text-white/30 group-hover:text-summer-accent transition-colors" />
+                          <span className="text-xs text-white/50 font-bold">اضغط لإرفاق أو تعديل الصورة التوضيحية للمهمة</span>
+                       </div>
+                     )}
+                  </label>
+                </div>
+
                 <button 
                   onClick={updateTask}
                   className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black text-lg hover:bg-emerald-700 transition-all shadow-lg active:scale-95"
@@ -4718,6 +4837,17 @@ ${taskDetails || 'لا يوجد مهام مسجلة حتى الآن.'}
                   </div>
                 )}
                 
+                {task.imageUrl && (
+                  <div className="w-full h-44 rounded-2xl overflow-hidden border border-white/10 shadow-inner">
+                    <img 
+                      src={task.imageUrl} 
+                      alt={task.title} 
+                      className="w-full h-full object-cover"
+                      referrerPolicy="no-referrer"
+                    />
+                  </div>
+                )}
+                
                 <div className="flex justify-between items-start text-right">
                   <div className="flex-1">
                     <div className="w-14 h-14 bg-white/30 rounded-2xl mb-4 flex items-center justify-center text-summer-accent group-hover:scale-110 transition-transform">
@@ -4796,12 +4926,22 @@ ${taskDetails || 'لا يوجد مهام مسجلة حتى الآن.'}
                     <span className="text-[7px] uppercase tracking-tighter">{(task.rewardType || 'points') === 'tokens' ? 'توكن' : 'نقطة'}</span>
                   </div>
                   {isParent && (
-                    <button 
-                      onClick={() => startEdit(task)}
-                      className="absolute top-4 left-4 p-2 bg-white/20 rounded-xl text-summer-text/40 hover:text-summer-accent transition-colors cursor-pointer"
-                    >
-                      <Edit2 size={16} />
-                    </button>
+                    <div className="absolute top-4 left-4 flex gap-2">
+                      <button 
+                        onClick={() => startEdit(task)}
+                        className="p-2 bg-white/20 rounded-xl text-summer-text/40 hover:text-summer-accent transition-colors cursor-pointer"
+                        title="تعديل المهمة"
+                      >
+                        <Edit2 size={16} />
+                      </button>
+                      <button 
+                        onClick={() => deleteTask(task.id)}
+                        className="p-2 bg-white/20 rounded-xl text-summer-text/40 hover:text-red-500 transition-colors cursor-pointer"
+                        title="حذف المهمة"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
                   )}
                 </div>
 

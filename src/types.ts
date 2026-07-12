@@ -235,5 +235,6 @@ export interface DailyTask {
   completedAt?: any;
   category?: string;
   isArchived?: boolean;
+  imageUrl?: string;
 }
 
