@@ -179,15 +179,94 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
   const [editTaskImage, setEditTaskImage] = useState('');
   const [uploadingEditTaskImage, setUploadingEditTaskImage] = useState(false);
 
+  // Robust helper to compress any image client-side to very small size (~15KB)
+  const compressAndPrepareImage = (file: File): Promise<{ base64: string, compressedFile: File | null }> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target?.result as string;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 400;
+          const MAX_HEIGHT = 400;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > MAX_WIDTH) {
+              height *= MAX_WIDTH / width;
+              width = MAX_WIDTH;
+            }
+          } else {
+            if (height > MAX_HEIGHT) {
+              width *= MAX_HEIGHT / height;
+              height = MAX_HEIGHT;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve({ base64: event.target?.result as string, compressedFile: null });
+            return;
+          }
+          ctx.drawImage(img, 0, 0, width, height);
+          const base64 = canvas.toDataURL('image/jpeg', 0.6);
+          
+          canvas.toBlob((blob) => {
+            if (blob) {
+              const compressedFile = new File([blob], file.name, { type: 'image/jpeg' });
+              resolve({ base64, compressedFile });
+            } else {
+              resolve({ base64, compressedFile: null });
+            }
+          }, 'image/jpeg', 0.6);
+        };
+        img.onerror = () => {
+          resolve({ base64: '', compressedFile: null });
+        };
+      };
+      reader.onerror = () => {
+        resolve({ base64: '', compressedFile: null });
+      };
+    });
+  };
+
   const handleTaskImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploadingTaskImage(true);
     try {
-      const storageRef = ref(storage, `dailyTaskImages/${Date.now()}_${file.name}`);
-      await uploadBytes(storageRef, file);
-      const url = await getDownloadURL(storageRef);
-      setNewTaskImage(url);
+      // 1. Compress image to small base64 & compressed File
+      const { base64, compressedFile } = await compressAndPrepareImage(file);
+      if (!base64) {
+        alert("فشل في قراءة أو معالجة الصورة");
+        return;
+      }
+
+      // 2. Try to upload compressed file (very small, so instant) with a 2-second timeout
+      const uploadPromise = async () => {
+        if (!compressedFile) throw new Error("No compressed file");
+        const storageRef = ref(storage, `dailyTaskImages/${Date.now()}_compressed.jpg`);
+        await uploadBytes(storageRef, compressedFile);
+        return await getDownloadURL(storageRef);
+      };
+
+      const timeoutPromise = new Promise<string>((_, reject) => 
+        setTimeout(() => reject(new Error("Timeout")), 2000)
+      );
+
+      try {
+        const url = await Promise.race([uploadPromise(), timeoutPromise]);
+        setNewTaskImage(url);
+      } catch (uploadError) {
+        console.warn("Storage upload timed out or failed. Falling back to base64 encoding.", uploadError);
+        // Instant local fallback
+        setNewTaskImage(base64);
+      }
     } catch (error) {
       console.error("Daily Task Image Upload error:", error);
       alert("حدث خطأ أثناء تحميل صورة المهمة");
@@ -201,10 +280,33 @@ export default function DailyTasksPage({ profile }: DailyTasksPageProps) {
     if (!file) return;
     setUploadingEditTaskImage(true);
     try {
-      const storageRef = ref(storage, `dailyTaskImages/${Date.now()}_${file.name}`);
-      await uploadBytes(storageRef, file);
-      const url = await getDownloadURL(storageRef);
-      setEditTaskImage(url);
+      // 1. Compress image to small base64 & compressed File
+      const { base64, compressedFile } = await compressAndPrepareImage(file);
+      if (!base64) {
+        alert("فشل في قراءة أو معالجة الصورة");
+        return;
+      }
+
+      // 2. Try to upload compressed file (very small, so instant) with a 2-second timeout
+      const uploadPromise = async () => {
+        if (!compressedFile) throw new Error("No compressed file");
+        const storageRef = ref(storage, `dailyTaskImages/${Date.now()}_compressed.jpg`);
+        await uploadBytes(storageRef, compressedFile);
+        return await getDownloadURL(storageRef);
+      };
+
+      const timeoutPromise = new Promise<string>((_, reject) => 
+        setTimeout(() => reject(new Error("Timeout")), 2000)
+      );
+
+      try {
+        const url = await Promise.race([uploadPromise(), timeoutPromise]);
+        setEditTaskImage(url);
+      } catch (uploadError) {
+        console.warn("Storage upload timed out or failed. Falling back to base64 encoding.", uploadError);
+        // Instant local fallback
+        setEditTaskImage(base64);
+      }
     } catch (error) {
       console.error("Daily Edit Task Image Upload error:", error);
       alert("حدث خطأ أثناء تحميل صورة المهمة المعدلة");
